@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: sistem-monitoring-keamanan-be
+    runtime: php
+    rootDir: backend
+    buildCommand: chmod +x render-build.sh && ./render-build.sh
+    startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: APP_NAME
+        value: Laravel
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_URL
+        generateValue: true
+      - key: APP_KEY
+        generateValue: true
+      - key: APP_TIMEZONE
+        value: Asia/Jakarta
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        value: aws-0-ap-southeast-1.pooler.supabase.com
+      - key: DB_PORT
+        value: 5432
+      - key: DB_DATABASE
+        value: postgres
+      - key: DB_USERNAME
+        value: postgres.cmbdnedkkzlmqhcqyplo
+      - key: DB_PASSWORD
+        sync: false
+      - key: SESSION_DRIVER
+        value: cookie
+      - key: CACHE_STORE
+        value: array
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: error
