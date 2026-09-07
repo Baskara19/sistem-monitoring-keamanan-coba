@@ -47,7 +47,7 @@ const fetchDashboard = async (initialLoad = false) => {
   error.value = "";
 
   try {
-    const response = await axios.get("http://127.0.0.1:8000/api/admin/dashboard", getAuthHeaders());
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/dashboard", getAuthHeaders());
 
     dashboard.value = {
       total_users: response.data.total_users ?? 0,

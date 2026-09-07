@@ -76,7 +76,7 @@ const submitForm = async () => {
     const token = localStorage.getItem("token");
 
     await axios.post(
-      "http://127.0.0.1:8000/api/admin/patrol-points",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points",
       {
         name: form.value.name,
         location_address: form.value.location_address,

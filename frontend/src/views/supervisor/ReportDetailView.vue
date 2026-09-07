@@ -586,7 +586,7 @@ const fetchDetail = async () => {
   try {
     const token = localStorage.getItem("token");
 
-    const response = await axios.get("http://127.0.0.1:8000/api/supervisor/reports", {
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/reports", {
       headers: {
         Authorization: `Bearer ${token}`,
 
@@ -639,7 +639,7 @@ const reviewReport = async () => {
     const token = localStorage.getItem("token");
 
     const response = await axios.put(
-      `http://127.0.0.1:8000/api/supervisor/reports/${report.value.report_id}/review`,
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/reports/${report.value.report_id}/review`,
       {},
       {
         headers: {
@@ -678,7 +678,7 @@ const reviewSkip = async () => {
     const token = localStorage.getItem("token");
 
     const response = await axios.put(
-      `http://127.0.0.1:8000/api/supervisor/skips/${report.value.skip_reason_id}/review`,
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/skips/${report.value.skip_reason_id}/review`,
       {},
       {
         headers: {
@@ -818,7 +818,7 @@ const getPhotoUrl = (photo) => {
     return photo;
   }
 
-  return `http://127.0.0.1:8000/storage/${photo}`;
+  return `https://sistem-monitoring-keamanan-be.onrender.com/storage/${photo}`;
 };
 
 // =====================================================

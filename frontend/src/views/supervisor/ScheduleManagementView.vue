@@ -96,7 +96,7 @@ const fetchSchedules = async () => {
   error.value = "";
 
   try {
-    const response = await axios.get("http://127.0.0.1:8000/api/supervisor/schedules", {
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules", {
       ...getAuthHeaders(),
       params: {
         search: search.value || undefined,
@@ -116,9 +116,9 @@ const fetchSchedules = async () => {
 const fetchOptions = async () => {
   try {
     const [satpamRes, pointRes, routeRes] = await Promise.all([
-      axios.get("http://127.0.0.1:8000/api/supervisor/satpam", getAuthHeaders()),
-      axios.get("http://127.0.0.1:8000/api/supervisor/patrol-points", getAuthHeaders()),
-      axios.get("http://127.0.0.1:8000/api/supervisor/routes", getAuthHeaders()),
+      axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/satpam", getAuthHeaders()),
+      axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/patrol-points", getAuthHeaders()),
+      axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/routes", getAuthHeaders()),
     ]);
 
     satpamOptions.value = satpamRes.data.satpam ?? [];
@@ -263,7 +263,7 @@ const submitForm = async () => {
   try {
     if (modalMode.value === "create") {
       await axios.post(
-        "http://127.0.0.1:8000/api/supervisor/schedules",
+        "https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules",
         {
           satpam_id: form.value.satpam_id,
           route_id: form.value.route_id,
@@ -277,7 +277,7 @@ const submitForm = async () => {
       );
     } else {
       await axios.put(
-        `http://127.0.0.1:8000/api/supervisor/schedules/${selectedId.value}`,
+        `https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules/${selectedId.value}`,
         {
           satpam_id: form.value.satpam_id,
           patrol_point_id: form.value.patrol_point_id,
@@ -309,7 +309,7 @@ const deleteSchedule = async (row) => {
 
   try {
     await axios.delete(
-      `http://127.0.0.1:8000/api/supervisor/schedules/${row.id}`,
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules/${row.id}`,
       getAuthHeaders()
     );
 
@@ -354,7 +354,7 @@ const downloadTemplate = async () => {
 
   try {
     const response = await axios.get(
-      "http://127.0.0.1:8000/api/supervisor/schedules-import-template",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules-import-template",
       { ...getAuthHeaders(), responseType: "blob" }
     );
 
@@ -389,7 +389,7 @@ const submitImport = async () => {
     payload.append("file", importFile.value);
 
     const response = await axios.post(
-      "http://127.0.0.1:8000/api/supervisor/schedules-import",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules-import",
       payload,
       {
         headers: {

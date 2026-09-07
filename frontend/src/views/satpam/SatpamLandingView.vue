@@ -342,7 +342,7 @@ const getAuthHeaders = () => {
 
 const fetchSummary = async () => {
   try {
-    const response = await axios.get("http://127.0.0.1:8000/api/satpam/summary", getAuthHeaders());
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/summary", getAuthHeaders());
 
     summary.value = {
       scheduled: response.data.scheduled ?? 0,

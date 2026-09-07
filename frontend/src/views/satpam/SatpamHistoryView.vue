@@ -403,7 +403,7 @@ const fetchHistory = async () => {
     const headers = getAuthHeaders();
 
     const response = await axios.get(
-      "http://127.0.0.1:8000/api/satpam/history",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/history",
       {
         ...headers,
         params: { date: selectedDate.value || "all" },

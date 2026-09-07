@@ -48,7 +48,7 @@ const fetchPatrolPoints = async () => {
 
   try {
     const response = await axios.get(
-      "http://127.0.0.1:8000/api/admin/patrol-points",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points",
       getAuthHeaders(),
     );
 
@@ -325,7 +325,7 @@ const deletePatrolPoint = async (id) => {
   if (!result.isConfirmed) return;
 
   try {
-    await axios.delete(`http://127.0.0.1:8000/api/admin/patrol-points/${id}`, getAuthHeaders());
+    await axios.delete(`https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${id}`, getAuthHeaders());
 
     await Swal.fire({
       icon: "success",

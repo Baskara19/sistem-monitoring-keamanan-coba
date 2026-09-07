@@ -304,7 +304,7 @@ const handleDecoded = async (qrCode) => {
 
   try {
     const response = await axios.post(
-      "http://127.0.0.1:8000/api/satpam/scan",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/scan",
       {
         qr_code: qrCode,
         latitude: location?.latitude,
@@ -359,7 +359,7 @@ const fetchSkipOptions = async () => {
 
   try {
     const response = await axios.get(
-      "http://127.0.0.1:8000/api/satpam/skip-options",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/skip-options",
       getAuthHeaders()
     );
 
@@ -414,7 +414,7 @@ const submitSkipScan = async () => {
 
   try {
     const response = await axios.post(
-      "http://127.0.0.1:8000/api/satpam/skip-scan",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/skip-scan",
       skipForm.value,
       getAuthHeaders()
     );

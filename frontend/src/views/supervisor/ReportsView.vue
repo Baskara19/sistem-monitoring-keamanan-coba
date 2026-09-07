@@ -541,7 +541,7 @@ const fetchReports = async () => {
       params.satpam = filters.value.satpam.trim();
     }
 
-    const response = await axios.get("http://127.0.0.1:8000/api/supervisor/reports", {
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/reports", {
       params,
 
       headers: {

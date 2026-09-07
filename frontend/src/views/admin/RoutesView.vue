@@ -50,7 +50,7 @@ const fetchRoutes = async () => {
   error.value = "";
 
   try {
-    const response = await axios.get("http://127.0.0.1:8000/api/admin/routes", getAuthHeaders());
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes", getAuthHeaders());
     routes.value = response.data.routes ?? [];
   } catch (err) {
     error.value = err.response?.data?.message || "Gagal memuat data rute patroli.";
@@ -61,7 +61,7 @@ const fetchRoutes = async () => {
 
 const fetchPatrolPoints = async () => {
   try {
-    const response = await axios.get("http://127.0.0.1:8000/api/admin/patrol-points", getAuthHeaders());
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points", getAuthHeaders());
     patrolPoints.value = response.data.patrol_points ?? [];
   } catch (err) {
     console.error(err);
@@ -160,10 +160,10 @@ const submitForm = async () => {
     };
 
     if (modalMode.value === "create") {
-      await axios.post("http://127.0.0.1:8000/api/admin/routes", payload, getAuthHeaders());
+      await axios.post("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes", payload, getAuthHeaders());
     } else {
       await axios.put(
-        `http://127.0.0.1:8000/api/admin/routes/${selectedRouteId.value}`,
+        `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes/${selectedRouteId.value}`,
         payload,
         getAuthHeaders()
       );
@@ -195,7 +195,7 @@ const deleteRoute = async (route) => {
   if (!result.isConfirmed) return;
 
   try {
-    await axios.delete(`http://127.0.0.1:8000/api/admin/routes/${route.id}`, getAuthHeaders());
+    await axios.delete(`https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes/${route.id}`, getAuthHeaders());
     await fetchRoutes();
   } catch (err) {
     Swal.fire({

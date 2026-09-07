@@ -42,7 +42,7 @@ const fetchUsers = async () => {
   loading.value = true;
   error.value = "";
   try {
-    const response = await axios.get("http://127.0.0.1:8000/api/admin/users", getAuthHeaders());
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users", getAuthHeaders());
     users.value = response.data.users;
   } catch (err) {
     error.value = err.response?.data?.message || "Gagal memuat data user.";
@@ -127,7 +127,7 @@ const submitForm = async () => {
     // TAMBAH USER
     // ==============================
     if (modalMode.value === "create") {
-      await axios.post("http://127.0.0.1:8000/api/admin/users", form.value, getAuthHeaders());
+      await axios.post("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users", form.value, getAuthHeaders());
     }
 
     // ==============================
@@ -153,7 +153,7 @@ const submitForm = async () => {
       console.log("DATA UPDATE:", updateData);
 
       await axios.put(
-        `http://127.0.0.1:8000/api/admin/users/${selectedUser.value.id}`,
+        `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users/${selectedUser.value.id}`,
         updateData,
         getAuthHeaders(),
       );
@@ -204,7 +204,7 @@ const submitForm = async () => {
 const deleteUser = async (id) => {
   if (!confirm("Yakin ingin menghapus user ini?")) return;
   try {
-    await axios.delete(`http://127.0.0.1:8000/api/admin/users/${id}`, getAuthHeaders());
+    await axios.delete(`https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users/${id}`, getAuthHeaders());
     fetchUsers();
   } catch (err) {
     error.value = err.response?.data?.message || "Gagal menghapus user.";

@@ -219,7 +219,7 @@ const submitReport = async () => {
     }
 
     await axios.post(
-      "http://127.0.0.1:8000/api/satpam/reports",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/reports",
       payload,
       {
         headers: {

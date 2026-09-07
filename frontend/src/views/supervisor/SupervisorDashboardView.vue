@@ -173,7 +173,7 @@ const fetchDashboard = async (initialLoad = false) => {
 
   try {
     const response = await axios.get(
-      "http://127.0.0.1:8000/api/supervisor/dashboard",
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/dashboard",
       getAuthHeaders(),
     );
 

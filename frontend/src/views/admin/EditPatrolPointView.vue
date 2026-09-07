@@ -88,7 +88,7 @@ const submitForm = async () => {
     const token = localStorage.getItem("token");
 
     await axios.put(
-      `http://127.0.0.1:8000/api/admin/patrol-points/${patrolPointId}`,
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${patrolPointId}`,
       {
         name: form.value.name,
         location_address: form.value.location_address,
@@ -137,7 +137,7 @@ const submitForm = async () => {
 const loadPatrolPoint = async () => {
   try {
     const response = await axios.get(
-      `http://127.0.0.1:8000/api/admin/patrol-points/${patrolPointId}`,
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${patrolPointId}`,
       getAuthHeaders(),
     );
 
