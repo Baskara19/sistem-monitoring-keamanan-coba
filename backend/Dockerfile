@@ -36,13 +36,10 @@ RUN cp .env.example .env
 RUN chmod -R 775 storage bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
-# Generate app key
-RUN php artisan key:generate --force
-
-# Cache config and routes
-RUN php artisan config:cache \
-    && php artisan route:cache
-
 EXPOSE 8000
 
-CMD php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000
+# Generate key, cache, migrate, lalu serve — semua saat runtime
+CMD php artisan key:generate --force && \
+    php artisan config:clear && \
+    php artisan migrate --force && \
+    php artisan serve --host=0.0.0.0 --port=8000
