@@ -17,29 +17,21 @@ RUN apt-get update && apt-get install -y \
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set working directory
 WORKDIR /var/www
 
-# Copy composer files first (for caching)
 COPY composer.json composer.lock ./
-
-# Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --no-scripts
 
-# Copy the rest of the app
 COPY . .
 
-# Copy .env.example to .env
-RUN cp .env.example .env
-
-# Set permissions
+# Pakai env variable dari Render langsung, bukan dari .env file
 RUN chmod -R 775 storage bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 8000
 
-# Generate key, cache, migrate, lalu serve — semua saat runtime
-CMD php artisan key:generate --force && \
+# Buat .env dari environment variables Render saat runtime
+CMD env > /var/www/.env && \
     php artisan config:clear && \
     php artisan migrate --force && \
     php artisan serve --host=0.0.0.0 --port=8000
