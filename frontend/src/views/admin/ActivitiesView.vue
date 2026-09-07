@@ -30,7 +30,7 @@ const fetchActivities = async () => {
   error.value = ''
   try {
     const response = await axios.get(
-      'http://127.0.0.1:8000/api/admin/activities',
+      import.meta.env.VITE_API_URL + '/admin/activities',
       getAuthHeaders()
     )
     activities.value = response.data.activities ?? []
