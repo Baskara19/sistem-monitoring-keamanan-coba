@@ -25,17 +25,9 @@ COPY . .
 RUN chmod -R 775 storage bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
 EXPOSE 8000
 
-CMD php -r "
-file_put_contents('/var/www/.env', implode(\"\n\", array_map(
-    fn(\$k) => \$k.'='.getenv(\$k),
-    ['APP_NAME','APP_ENV','APP_KEY','APP_DEBUG','APP_URL','APP_TIMEZONE',
-     'DB_CONNECTION','DB_HOST','DB_PORT','DB_DATABASE','DB_USERNAME','DB_PASSWORD',
-     'SESSION_DRIVER','SESSION_LIFETIME','CACHE_STORE','QUEUE_CONNECTION',
-     'LOG_CHANNEL','LOG_LEVEL']
-)));
-" && \
-    php artisan config:clear && \
-    php artisan migrate --force && \
-    php artisan serve --host=0.0.0.0 --port=8000
+CMD ["/start.sh"]
