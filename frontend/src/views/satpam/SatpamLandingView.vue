@@ -268,6 +268,8 @@
         <span>Log Out</span>
       </button>
     </nav>
+
+    <InstallAppPrompt />
   </div>
 </template>
 
@@ -275,6 +277,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import axios from "axios";
 import { useRouter } from "vue-router";
+import InstallAppPrompt from "@/components/InstallAppPrompt.vue";
 
 const router = useRouter();
 
