@@ -1,9 +1,9 @@
-<script setup>
+git<script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
-const API_BASE = import.meta.env.VITE_API_URL || "https://sistem-monitoring-keamanan-be.onrender.com/api";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api";
 const mapElement = ref(null),
   mapInstance = ref(null),
   markers = ref([]);

@@ -9,6 +9,10 @@ use App\Models\Report;
 use App\Models\Satpam;
 use App\Models\SkipReason;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use App\Models\Schedule;
 use App\Models\ScheduleDetail;
 
@@ -680,7 +684,15 @@ public function history(Request $request)
         $photoPath = null;
 
         if ($request->hasFile('photo')) {
-            $photoPath = $request->file('photo')->store('reports', 'public');
+            try {
+                $photoPath = $this->convertPhotoToWebp($request->file('photo'));
+            } catch (\Throwable $exception) {
+                report($exception);
+
+                throw ValidationException::withMessages([
+                    'photo' => 'Foto tidak dapat dikonversi ke format WebP.',
+                ]);
+            }
         }
 
         $title = self::REPORT_TYPE_LABELS[$validated['report_type']]
@@ -699,5 +711,54 @@ public function history(Request $request)
             'message' => 'Laporan berhasil disimpan.',
             'report'  => $report,
         ], 201);
+    }
+
+    /**
+     * Convert the uploaded image to WebP and store only the resulting path.
+     */
+    private function convertPhotoToWebp(UploadedFile $photo): string
+    {
+        if (! function_exists('imagewebp')) {
+            throw new \RuntimeException('PHP GD with WebP support is required.');
+        }
+
+        $imageInfo = @getimagesize($photo->getRealPath());
+        $mime = $imageInfo['mime'] ?? null;
+
+        $image = match ($mime) {
+            'image/jpeg' => @imagecreatefromjpeg($photo->getRealPath()),
+            'image/png'  => @imagecreatefrompng($photo->getRealPath()),
+            'image/gif'  => @imagecreatefromgif($photo->getRealPath()),
+            'image/webp' => @imagecreatefromwebp($photo->getRealPath()),
+            default      => false,
+        };
+
+        if ($image === false) {
+            throw new \RuntimeException('Unable to decode the uploaded image.');
+        }
+
+        try {
+            // Keep transparent backgrounds when the source image has an alpha channel.
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+
+            ob_start();
+            $encoded = imagewebp($image, null, 85);
+            $contents = ob_get_clean();
+
+            if (! $encoded || $contents === false || $contents === '') {
+                throw new \RuntimeException('Unable to encode the image as WebP.');
+            }
+
+            $path = 'reports/' . Str::uuid() . '.webp';
+
+            if (! Storage::disk('public')->put($path, $contents)) {
+                throw new \RuntimeException('Unable to store the converted image.');
+            }
+
+            return $path;
+        } finally {
+            imagedestroy($image);
+        }
     }
 }
