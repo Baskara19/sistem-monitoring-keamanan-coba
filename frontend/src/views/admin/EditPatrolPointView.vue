@@ -5,6 +5,7 @@ import axios from "axios";
 import { useRoute } from "vue-router";
 import { onMounted } from "vue";
 import Swal from "sweetalert2";
+import PatrolLocationPicker from "../../components/PatrolLocationPicker.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -32,6 +33,7 @@ const form = ref({
 
 const error = ref("");
 const loading = ref(false);
+const existingPoints = ref([]);
 const displayName = computed(() => {
   const storedUser = localStorage.getItem("user");
 
@@ -61,6 +63,10 @@ const submitForm = async () => {
 
   if (!form.value.location_address.trim()) {
     error.value = "Alamat lokasi wajib diisi.";
+    return;
+  }
+  if (!form.value.latitude || !form.value.longitude) {
+    error.value = "Pilih lokasi titik patroli pada peta terlebih dahulu.";
     return;
   }
   if (!form.value.name.trim()) {
@@ -164,8 +170,21 @@ const loadPatrolPoint = async () => {
   }
 };
 
+const loadExistingPoints = async () => {
+  try {
+    const response = await axios.get(
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points",
+      getAuthHeaders(),
+    );
+    existingPoints.value = response.data.patrol_points ?? [];
+  } catch (err) {
+    console.error("Gagal memuat titik patroli pada peta", err);
+  }
+};
+
 onMounted(() => {
   loadPatrolPoint();
+  loadExistingPoints();
 });
 </script>
 
@@ -293,19 +312,15 @@ onMounted(() => {
               ></textarea>
             </div>
 
-            <!-- KOORDINAT -->
-            <div class="form-row">
-              <div class="form-group">
-                <label> Latitude </label>
-
-                <input v-model="form.latitude" type="number" step="any" placeholder="-7.7956" />
-              </div>
-
-              <div class="form-group">
-                <label> Longitude </label>
-
-                <input v-model="form.longitude" type="number" step="any" placeholder="110.3695" />
-              </div>
+            <!-- LOKASI PADA PETA -->
+            <div class="form-group">
+              <label>Pilih Lokasi pada Peta <span>*</span></label>
+              <PatrolLocationPicker
+                v-model:latitude="form.latitude"
+                v-model:longitude="form.longitude"
+                :existing-points="existingPoints"
+                :exclude-id="patrolPointId"
+              />
             </div>
 
             <!-- RADIUS -->

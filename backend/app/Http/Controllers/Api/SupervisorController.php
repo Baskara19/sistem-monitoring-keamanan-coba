@@ -13,12 +13,16 @@ use App\Models\Schedule;
 use App\Models\ScheduleDetail;
 use App\Models\Supervisor;
 use App\Models\SkipReason;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class SupervisorController extends Controller
@@ -29,6 +33,13 @@ class SupervisorController extends Controller
     public function monitoring(Request $request)
     {
         $today = today();
+           $locationId = $this->supervisorLocationId($request);
+
+    if (! $locationId) {
+        return response()->json([
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
+    }
 
         $patrolPoints = PatrolPoint::query()
             ->orderBy('name')
@@ -45,6 +56,9 @@ class SupervisorController extends Controller
 
         $activeDetails = ScheduleDetail::query()
             ->with(['satpam.user', 'patrolPoint'])
+                ->whereHas('satpam.user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    })
             ->whereHas('schedule', function ($query) use ($today) {
                 $query->where('status', 'aktif')
                     ->whereDate('start_date', '<=', $today)
@@ -56,6 +70,9 @@ class SupervisorController extends Controller
 
         $todayLogs = PatrolLog::query()
             ->with('patrolPoint:id,name')
+            ->whereHas('satpam.user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    })
             ->whereDate('scan_time', $today)
             ->orderByDesc('scan_time')
             ->get();
@@ -91,7 +108,9 @@ class SupervisorController extends Controller
                 'anomali' => $todayLogs->where('scan_status', 'anomali')->count(),
                 'skip' => $todayLogs->where('scan_status', 'skip')->count(),
                 'terlewat' => $todayLogs->where('scan_status', 'terlewat')->count(),
-                'offline' => Satpam::where('status', 'aktif')->count() - $activeSatpams->count(),
+                'offline' => Satpam::where('status', 'aktif') ->whereHas('user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    })->count() - $activeSatpams->count(),
             ],
             'patrol_points' => $patrolPoints,
             'active_satpams' => $activeSatpams,
@@ -108,7 +127,13 @@ class SupervisorController extends Controller
         // =====================================================
 
         $today = today();
+ $locationId = $this->supervisorLocationId($request);
 
+    if (! $locationId) {
+        return response()->json([
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
+    }
         // =====================================================
         // DATA PATROLI HARI INI
         // =====================================================
@@ -120,6 +145,9 @@ class SupervisorController extends Controller
             'report',
             'skipReason',
         ])
+         ->whereHas('satpam.user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    })
             ->whereDate('scan_time', $today)
             ->orderBy('scan_time', 'desc')
             ->get();
@@ -357,6 +385,11 @@ class SupervisorController extends Controller
         return Supervisor::where('user_id', $request->user()->id)->first();
     }
 
+    private function supervisorLocationId(Request $request)
+{
+    return $request->user()->location_id;
+}
+
     private function formatScheduleRow(ScheduleDetail $detail): array
     {
         return [
@@ -377,44 +410,64 @@ class SupervisorController extends Controller
     }
 
     // GET /api/supervisor/schedules
-    public function scheduleIndex(Request $request)
-    {
-        $query = ScheduleDetail::with(['schedule', 'satpam.user', 'patrolPoint']);
+    // GET /api/supervisor/schedules
+public function scheduleIndex(Request $request)
+{
+    $locationId = $this->supervisorLocationId($request);
 
-        if ($request->filled('search')) {
-            $search = $request->input('search');
-
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('satpam.user', function ($q2) use ($search) {
-                    $q2->where('name', 'like', "%{$search}%");
-                })->orWhereHas('patrolPoint', function ($q2) use ($search) {
-                    $q2->where('name', 'like', "%{$search}%");
-                });
-            });
-        }
-
-        if ($request->filled('date_from') || $request->filled('date_to')) {
-            $query->whereHas('schedule', function ($q) use ($request) {
-                if ($request->filled('date_from')) {
-                    $q->whereDate('end_date', '>=', $request->input('date_from'));
-                }
-
-                if ($request->filled('date_to')) {
-                    $q->whereDate('start_date', '<=', $request->input('date_to'));
-                }
-            });
-        }
-
-        $rows = $query->join('schedules', 'schedules.id', '=', 'schedule_details.schedule_id')
-            ->orderBy('schedules.start_date', 'desc')
-            ->select('schedule_details.*')
-            ->get()
-            ->map(fn (ScheduleDetail $detail) => $this->formatScheduleRow($detail));
-
+    if (! $locationId) {
         return response()->json([
-            'schedules' => $rows,
-        ]);
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
     }
+
+    $query = ScheduleDetail::with([
+        'schedule',
+        'satpam.user',
+        'patrolPoint',
+    ])->whereHas('satpam.user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    });
+
+    if ($request->filled('search')) {
+        $search = $request->input('search');
+
+        $query->where(function ($q) use ($search) {
+            $q->whereHas('satpam.user', function ($q2) use ($search) {
+                $q2->where('name', 'like', "%{$search}%");
+            })->orWhereHas('patrolPoint', function ($q2) use ($search) {
+                $q2->where('name', 'like', "%{$search}%");
+            });
+        });
+    }
+
+    if ($request->filled('date_from') || $request->filled('date_to')) {
+        $query->whereHas('schedule', function ($q) use ($request) {
+            if ($request->filled('date_from')) {
+                $q->whereDate('end_date', '>=', $request->input('date_from'));
+            }
+
+            if ($request->filled('date_to')) {
+                $q->whereDate('start_date', '<=', $request->input('date_to'));
+            }
+        });
+    }
+
+    $rows = $query->join(
+        'schedules',
+        'schedules.id',
+        '=',
+        'schedule_details.schedule_id'
+    )
+        ->orderBy('schedules.start_date', 'desc')
+        ->select('schedule_details.*')
+        ->get()
+        ->map(fn (ScheduleDetail $detail) => $this->formatScheduleRow($detail));
+
+    return response()->json([
+        'schedules' => $rows,
+    ]);
+}
 
     // POST /api/supervisor/schedules
     public function scheduleStore(Request $request)
@@ -436,6 +489,26 @@ class SupervisorController extends Controller
                 'message' => 'Data supervisor tidak ditemukan untuk akun ini.',
             ], 404);
         }
+        $locationId = $this->supervisorLocationId($request);
+
+if (! $locationId) {
+    return response()->json([
+        'message' => 'Lokasi supervisor belum ditentukan.',
+    ], 403);
+}
+
+$satpam = Satpam::with('user')
+    ->where('id', $validated['satpam_id'])
+    ->whereHas('user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    })
+    ->first();
+
+if (! $satpam) {
+    return response()->json([
+        'message' => 'Satpam tidak berada di lokasi supervisor.',
+    ], 403);
+}
 
         $route = PatrolRoute::with('points')->find($validated['route_id']);
 
@@ -445,7 +518,7 @@ class SupervisorController extends Controller
             ], 404);
         }
 
-        $satpamName = Satpam::with('user')->find($validated['satpam_id'])?->user?->name ?? 'Satpam';
+       $satpamName = $satpam->user?->name ?? 'Satpam';
 
         $schedule = Schedule::create([
             'supervisor_id' => $supervisor->id,
@@ -497,7 +570,15 @@ class SupervisorController extends Controller
                 'message' => 'Jadwal tidak ditemukan.',
             ], 404);
         }
+   $supervisor = $this->currentSupervisor($request);
 
+   $locationId = $this->supervisorLocationId($request);
+
+if (! $locationId) {
+    return response()->json([
+        'message' => 'Lokasi supervisor belum ditentukan.',
+    ], 403);
+}
         $validated = $request->validate([
             'satpam_id'       => 'required|exists:satpams,id',
             'patrol_point_id' => 'required|exists:patrol_points,id',
@@ -507,6 +588,19 @@ class SupervisorController extends Controller
             'shift_end'       => 'required',
             'status'          => 'required|in:aktif,nonaktif',
         ]);
+
+$satpam = Satpam::with('user')
+    ->where('id', $validated['satpam_id'])
+    ->whereHas('user', function ($query) use ($locationId) {
+        $query->where('location_id', $locationId);
+    })
+    ->first();
+
+if (! $satpam) {
+    return response()->json([
+        'message' => 'Satpam tidak berada di lokasi supervisor.',
+    ], 403);
+}
 
         $detail->update([
             'satpam_id'       => $validated['satpam_id'],
@@ -529,45 +623,92 @@ class SupervisorController extends Controller
         ]);
     }
 
-    // DELETE /api/supervisor/schedules/{id}
-    public function scheduleDestroy($id)
-    {
-        $detail = ScheduleDetail::find($id);
+  // DELETE /api/supervisor/schedules/{id}
+public function scheduleDestroy(Request $request, $id)
+{
+    $detail = ScheduleDetail::with('schedule')->find($id);
 
-        if (! $detail) {
-            return response()->json([
-                'message' => 'Jadwal tidak ditemukan.',
-            ], 404);
-        }
-
-        $scheduleId = $detail->schedule_id;
-
-        $detail->delete();
-
-        if (ScheduleDetail::where('schedule_id', $scheduleId)->doesntExist()) {
-            Schedule::where('id', $scheduleId)->delete();
-        }
-
+    if (! $detail) {
         return response()->json([
-            'message' => 'Jadwal berhasil dihapus.',
-        ]);
+            'message' => 'Jadwal tidak ditemukan.',
+        ], 404);
     }
+
+    $supervisor = $this->currentSupervisor($request);
+
+    if (! $supervisor) {
+        return response()->json([
+            'message' => 'Data supervisor tidak ditemukan untuk akun ini.',
+        ], 404);
+    }
+
+    $locationId = $this->supervisorLocationId($request);
+
+    if (! $locationId) {
+        return response()->json([
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
+    }
+
+    // Pastikan jadwal ini memang dibuat oleh supervisor yang sedang login.
+    if ($detail->schedule?->supervisor_id !== $supervisor->id) {
+        return response()->json([
+            'message' => 'Anda tidak memiliki akses untuk menghapus jadwal ini.',
+        ], 403);
+    }
+
+    // Pastikan Satpam pada jadwal berada di lokasi supervisor.
+    $belongsToLocation = Satpam::where('id', $detail->satpam_id)
+        ->whereHas('user', function ($query) use ($locationId) {
+            $query->where('location_id', $locationId);
+        })
+        ->exists();
+
+    if (! $belongsToLocation) {
+        return response()->json([
+            'message' => 'Jadwal ini bukan milik Satpam di lokasi supervisor.',
+        ], 403);
+    }
+
+    $scheduleId = $detail->schedule_id;
+
+    $detail->delete();
+
+    if (ScheduleDetail::where('schedule_id', $scheduleId)->doesntExist()) {
+        Schedule::where('id', $scheduleId)->delete();
+    }
+
+    return response()->json([
+        'message' => 'Jadwal berhasil dihapus.',
+    ]);
+}
 
     // GET /api/supervisor/satpam
-    public function satpamList()
-    {
-        $satpam = Satpam::with('user:id,name')
-            ->where('status', 'aktif')
-            ->get()
-            ->map(fn (Satpam $s) => [
-                'id'   => $s->id,
-                'name' => $s->user?->name ?? '-',
-            ]);
+   public function satpamList(Request $request)
+{
+    $locationId = $this->supervisorLocationId($request);
 
+    if (! $locationId) {
         return response()->json([
-            'satpam' => $satpam,
-        ]);
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
     }
+
+    $satpam = Satpam::with('user:id,name,location_id')
+        ->where('status', 'aktif')
+        ->whereHas('user', function ($query) use ($locationId) {
+            $query->where('location_id', $locationId);
+        })
+        ->get()
+        ->map(fn (Satpam $s) => [
+            'id'   => $s->id,
+            'name' => $s->user?->name ?? '-',
+        ]);
+
+    return response()->json([
+        'satpam' => $satpam,
+    ]);
+}
 
     // GET /api/supervisor/patrol-points
     public function patrolPointList()
@@ -605,6 +746,13 @@ class SupervisorController extends Controller
 // GET /api/supervisor/reports
 public function reports(Request $request)
 {
+        $locationId = $this->supervisorLocationId($request);
+
+    if (! $locationId) {
+        return response()->json([
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
+    }
     $query = PatrolLog::with([
         'satpam.user',
         'patrolPoint',
@@ -613,7 +761,9 @@ public function reports(Request $request)
         'report',
         'skipReason',
     ]);
-
+ $query->whereHas('satpam.user', function ($q) use ($locationId) {
+        $q->where('location_id', $locationId);
+    });
     // Filter tanggal
     if ($request->filled('date')) {
         $query->whereDate('scan_time', $request->date);
@@ -712,7 +862,7 @@ public function reports(Request $request)
 
             'satpam_name' => $log->satpam?->user?->name ?? '-',
 
-            'badge_number' => $log->satpam?->badge_number ?? '-',
+            'nipkwt' => $log->satpam?->user?->nipkwt ?? '-',
 
             'patrol_point' => $log->patrolPoint?->name ?? '-',
 
@@ -751,7 +901,11 @@ public function reports(Request $request)
     // Statistik
     $todayLogs = PatrolLog::with([
         'report',
+         'skipReason',
     ])
+     ->whereHas('satpam.user', function ($q) use ($locationId) {
+        $q->where('location_id', $locationId);
+    })
         ->whereDate('scan_time', today())
         ->get();
 
@@ -799,9 +953,18 @@ public function reports(Request $request)
  *
  * Menandai laporan sebagai sudah ditinjau supervisor.
  */
-public function reviewReport($id)
+public function reviewReport(Request $request, $id)
 {
-    $report = Report::find($id);
+    $locationId = $this->supervisorLocationId($request);
+
+    if (! $locationId) {
+        return response()->json([
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
+    }
+
+    $report = Report::with('patrolLog.satpam.user')
+        ->find($id);
 
     if (! $report) {
         return response()->json([
@@ -809,8 +972,18 @@ public function reviewReport($id)
         ], 404);
     }
 
+    $reportLocationId = $report->patrolLog?->satpam?->user?->location_id;
+
+    if ((int) $reportLocationId !== (int) $locationId) {
+        return response()->json([
+            'message' => 'Anda tidak memiliki akses untuk meninjau laporan dari lokasi lain.',
+        ], 403);
+    }
+
     $report->update([
         'review_status' => 'reviewed',
+        'reviewed_at'   => now(),
+        'reviewed_by'   => $request->user()->id,
     ]);
 
     return response()->json([
@@ -826,14 +999,31 @@ public function reviewReport($id)
  *
  * Menandai Skip Scan sebagai sudah ditinjau supervisor.
  */
-public function reviewSkip($id)
+public function reviewSkip(Request $request, $id)
 {
-    $skipReason = SkipReason::find($id);
+    $locationId = $this->supervisorLocationId($request);
+
+    if (! $locationId) {
+        return response()->json([
+            'message' => 'Lokasi supervisor belum ditentukan.',
+        ], 403);
+    }
+
+    $skipReason = SkipReason::with('patrolLog.satpam.user')
+        ->find($id);
 
     if (! $skipReason) {
         return response()->json([
             'message' => 'Data skip tidak ditemukan.',
         ], 404);
+    }
+
+    $skipLocationId = $skipReason->patrolLog?->satpam?->user?->location_id;
+
+    if ((int) $skipLocationId !== (int) $locationId) {
+        return response()->json([
+            'message' => 'Anda tidak memiliki akses untuk meninjau skip dari lokasi lain.',
+        ], 403);
     }
 
     $skipReason->update([
@@ -849,36 +1039,154 @@ public function reviewSkip($id)
     ]);
 }
 
-    private const IMPORT_COLUMNS = [
-        'satpam',
-        'rute',
-        'tanggal mulai',
-        'tanggal selesai',
-        'jam mulai',
-        'jam selesai',
+    // Kolom tetap (di luar kolom tanggal 1-31) yang wajib ada di file import.
+    private const JADWAL_HEADER_COLUMNS = ['no', 'nama', 'jabatan', 'nipkwt', 'rute'];
+
+    // Jam shift tetap sesuai kode P/S/M. Malam (M) sengaja lintas tengah
+    // malam (22:00 -> 06:00 keesokan harinya) — ditangani oleh logic overnight
+    // di SatpamController saat satpam scan/lihat shift aktifnya.
+    private const SHIFT_TIMES = [
+        'P' => ['06:00', '14:00'],
+        'S' => ['14:00', '22:00'],
+        'M' => ['22:00', '06:00'],
     ];
 
-    // GET /api/supervisor/schedules/import-template
+    // GET /api/supervisor/schedules-import-template
     public function downloadImportTemplate()
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Jadwal');
 
-        $sheet->fromArray(
-            ['Satpam', 'Rute', 'Tanggal Mulai', 'Tanggal Selesai', 'Jam Mulai', 'Jam Selesai'],
-            null,
-            'A1'
+        $totalCols = 5 + 31; // No, Nama, Jabatan, NIPKWT, Rute + tanggal 1-31
+        $lastCol = Coordinate::stringFromColumnIndex($totalCols);
+
+        $navy = '1F2454';
+        $orange = 'E87500';
+        $grayText = '6B6F80';
+        $borderColor = 'D9DCE8';
+
+        // ===== JUDUL =====
+        $sheet->mergeCells("A1:{$lastCol}1");
+        $sheet->setCellValue('A1', 'TEMPLATE IMPORT JADWAL DINAS SATPAM');
+        $sheet->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 14, 'color' => ['rgb' => $navy]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+
+        $sheet->mergeCells("A2:{$lastCol}2");
+        $sheet->setCellValue('A2', 'Isi data di bawah ini, lalu upload lewat menu Import Jadwal. Bulan & tahun dipilih terpisah saat upload.');
+        $sheet->getStyle('A2')->applyFromArray([
+            'font' => ['italic' => true, 'size' => 10, 'color' => ['rgb' => $grayText]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+
+        // ===== PITA "TANGGAL" DI ATAS KOLOM-KOLOM TANGGAL =====
+        $tanggalRow = 3;
+        $sheet->mergeCells("A{$tanggalRow}:E{$tanggalRow}");
+        $sheet->mergeCells("F{$tanggalRow}:{$lastCol}{$tanggalRow}");
+        $sheet->setCellValue("F{$tanggalRow}", 'TANGGAL');
+        $sheet->getStyle("A{$tanggalRow}:{$lastCol}{$tanggalRow}")->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $navy]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+        ]);
+        $sheet->getRowDimension($tanggalRow)->setRowHeight(20);
+
+        // ===== HEADER TABEL =====
+        $headerRow = 4;
+        $header = ['No', 'Nama', 'Jabatan', 'NIPKWT', 'Rute'];
+
+        for ($day = 1; $day <= 31; $day++) {
+            $header[] = (string) $day;
+        }
+
+        $sheet->fromArray($header, null, "A{$headerRow}");
+
+        $headerRange = "A{$headerRow}:{$lastCol}{$headerRow}";
+        $sheet->getStyle($headerRange)->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $navy]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $borderColor]]],
+        ]);
+        $sheet->getRowDimension($headerRow)->setRowHeight(22);
+
+        // ===== BARIS CONTOH + BEBERAPA BARIS KOSONG BERGARIS =====
+        $exampleRow = $headerRow + 1;
+        $example = array_merge(
+            [1, 'Contoh Nama', 'PAM', '123456', 'Rute A'],
+            ['P', 'P', 'L', 'S', 'S', 'M', 'M', 'L'],
         );
 
-        $sheet->fromArray(
-            ['jeppp', 'Rute A', '2026-09-03', '2026-09-03', '07:00', '15:00'],
-            null,
-            'A2'
-        );
+        $sheet->fromArray($example, null, "A{$exampleRow}");
 
-        foreach (range('A', 'F') as $col) {
-            $sheet->getColumnDimension($col)->setWidth(18);
+        $blankRowsAfterExample = 9;
+        $lastDataRow = $exampleRow + $blankRowsAfterExample;
+
+        $sheet->getStyle("A{$exampleRow}:{$lastCol}{$lastDataRow}")->applyFromArray([
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $borderColor]]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $sheet->getStyle("B{$exampleRow}:B{$lastDataRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+
+        // ===== LEBAR KOLOM =====
+        $sheet->getColumnDimension('A')->setWidth(5);
+        $sheet->getColumnDimension('B')->setWidth(22);
+        $sheet->getColumnDimension('C')->setWidth(12);
+        $sheet->getColumnDimension('D')->setWidth(14);
+        $sheet->getColumnDimension('E')->setWidth(14);
+
+        foreach (range(6, $totalCols) as $colIndex) {
+            $sheet->getColumnDimensionByColumn($colIndex)->setWidth(4);
+        }
+
+        // ===== LEGENDA =====
+        $legendRow = $lastDataRow + 2;
+        $sheet->mergeCells("A{$legendRow}:{$lastCol}{$legendRow}");
+        $sheet->setCellValue("A{$legendRow}", 'KETERANGAN KODE SHIFT');
+        $sheet->getStyle("A{$legendRow}")->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $orange]],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+
+        // Setiap item legenda sengaja digabung jadi SATU sel yang merge
+        // selebar tabel (bukan kolom terpisah) — supaya gak ketabrak posisi
+        // kolom Nama/NIPKWT dan bikin parser import salah baca baris ini
+        // sebagai baris data.
+        $legendItems = [
+            'P = Pagi (06:00 - 14:00)',
+            'S = Siang (14:00 - 22:00)',
+            'M = Malam (22:00 - 06:00, lanjut ke hari berikutnya)',
+            'L = Libur (tidak ada jadwal hari itu) — kolom kosong juga dianggap Libur',
+        ];
+
+        foreach ($legendItems as $offset => $text) {
+            $r = $legendRow + 1 + $offset;
+            $sheet->mergeCells("A{$r}:{$lastCol}{$r}");
+            $sheet->setCellValue("A{$r}", $text);
+            $sheet->getStyle("A{$r}")->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => $navy]],
+                'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $borderColor]]],
+            ]);
+        }
+
+        // ===== CATATAN TAMBAHAN =====
+        $noteRow = $legendRow + count($legendItems) + 2;
+        $notes = [
+            'Jabatan diisi "PAM" untuk satpam biasa, atau "KATIM 1" / "KATIM 2" dst untuk katim.',
+            'NIPKWT & Rute wajib diisi persis sesuai data yang sudah terdaftar di sistem.',
+            'Bulan & tahun jadwal dipilih terpisah saat proses import, bukan dari file ini.',
+        ];
+
+        foreach ($notes as $offset => $note) {
+            $r = $noteRow + $offset;
+            $sheet->mergeCells("A{$r}:{$lastCol}{$r}");
+            $sheet->setCellValue("A{$r}", '• ' . $note);
+            $sheet->getStyle("A{$r}")->applyFromArray([
+                'font' => ['italic' => true, 'size' => 9, 'color' => ['rgb' => $grayText]],
+            ]);
         }
 
         $writer = new Xlsx($spreadsheet);
@@ -890,14 +1198,16 @@ public function reviewSkip($id)
         ]);
     }
 
-    // POST /api/supervisor/schedules/import
+    // POST /api/supervisor/schedules-import
     public function importSchedules(Request $request)
     {
         $request->validate([
             // Pakai "extensions" (bukan "mimes") karena file CSV polos sering
             // kedeteksi sistem sebagai text/plain, bukan text/csv, dan malah
             // ketolak validasi mimes walau filenya valid.
-            'file' => 'required|file|extensions:xlsx,xls,csv|max:5120',
+            'file'  => 'required|file|extensions:xlsx,xls,csv|max:5120',
+            'bulan' => 'required|integer|min:1|max:12',
+            'tahun' => 'required|integer|min:2020|max:2100',
         ]);
 
         $supervisor = $this->currentSupervisor($request);
@@ -907,6 +1217,16 @@ public function reviewSkip($id)
                 'message' => 'Data supervisor tidak ditemukan untuk akun ini.',
             ], 404);
         }
+        $locationId = $this->supervisorLocationId($request);
+
+if (! $locationId) {
+    return response()->json([
+        'message' => 'Lokasi supervisor belum ditentukan.',
+    ], 403);
+}
+
+        $bulan = (int) $request->input('bulan');
+        $tahun = (int) $request->input('tahun');
 
         try {
             $spreadsheet = IOFactory::load($request->file('file')->getRealPath());
@@ -924,30 +1244,66 @@ public function reviewSkip($id)
             ], 422);
         }
 
-        $header = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[0]);
+        // Baris header gak selalu baris pertama — template punya judul di
+        // atasnya. Cari baris yang mengandung semua kolom wajib.
+        $headerRowIndex = null;
+        $header = [];
 
-        $columnMap = [];
+        foreach ($rows as $idx => $candidateRow) {
+            $candidateHeader = array_map(fn ($h) => strtolower(trim((string) $h)), $candidateRow);
+            $hasAllColumns = true;
 
-        foreach (self::IMPORT_COLUMNS as $column) {
-            $index = array_search($column, $header, true);
-            $columnMap[$column] = $index === false ? null : $index;
+            foreach (self::JADWAL_HEADER_COLUMNS as $column) {
+                if (! in_array($column, $candidateHeader, true)) {
+                    $hasAllColumns = false;
+                    break;
+                }
+            }
+
+            if ($hasAllColumns) {
+                $headerRowIndex = $idx;
+                $header = $candidateHeader;
+                break;
+            }
         }
 
-        $missingColumns = array_keys(array_filter($columnMap, fn ($v) => $v === null));
-
-        if (! empty($missingColumns)) {
+        if ($headerRowIndex === null) {
             return response()->json([
-                'message' => 'Kolom wajib tidak ditemukan: ' . implode(', ', array_map('ucwords', $missingColumns))
-                    . '. Pakai template yang disediakan supaya nama kolomnya pas.',
+                'message' => 'Baris header (No, Nama, Jabatan, NIPKWT, Rute) tidak ditemukan di file. Pakai template yang disediakan supaya nama kolomnya pas.',
+            ], 422);
+        }
+
+        $fixedColumnIndex = [];
+
+        foreach (self::JADWAL_HEADER_COLUMNS as $column) {
+            $fixedColumnIndex[$column] = array_search($column, $header, true);
+        }
+
+        // Kolom tanggal dikenali dari header yang isinya angka 1-31.
+        $dayColumnIndex = [];
+
+        foreach ($header as $index => $label) {
+            if (in_array($index, $fixedColumnIndex, true)) {
+                continue;
+            }
+
+            if (ctype_digit($label) && (int) $label >= 1 && (int) $label <= 31) {
+                $dayColumnIndex[(int) $label] = $index;
+            }
+        }
+
+        if (empty($dayColumnIndex)) {
+            return response()->json([
+                'message' => 'Tidak ada kolom tanggal (1-31) yang terbaca di file. Pakai template yang disediakan.',
             ], 422);
         }
 
         $imported = 0;
         $errors = [];
 
-        for ($i = 1; $i < count($rows); $i++) {
+        for ($i = $headerRowIndex + 1; $i < count($rows); $i++) {
             $row = $rows[$i];
-            $rowNumber = $i + 1; // +1 karena baris pertama di file adalah header
+            $rowNumber = $i + 1; // +1 karena index array mulai dari 0
 
             $isEmptyRow = collect($row)->every(fn ($v) => trim((string) $v) === '');
 
@@ -955,38 +1311,62 @@ public function reviewSkip($id)
                 continue;
             }
 
-            $satpamName = trim((string) ($row[$columnMap['satpam']] ?? ''));
-            $routeName = trim((string) ($row[$columnMap['rute']] ?? ''));
-            $startDateRaw = trim((string) ($row[$columnMap['tanggal mulai']] ?? ''));
-            $endDateRaw = trim((string) ($row[$columnMap['tanggal selesai']] ?? ''));
-            $shiftStartRaw = trim((string) ($row[$columnMap['jam mulai']] ?? ''));
-            $shiftEndRaw = trim((string) ($row[$columnMap['jam selesai']] ?? ''));
+            $nama = trim((string) ($row[$fixedColumnIndex['nama']] ?? ''));
+            $jabatanRaw = trim((string) ($row[$fixedColumnIndex['jabatan']] ?? ''));
+            $nipkwtRaw = trim((string) ($row[$fixedColumnIndex['nipkwt']] ?? ''));
+            $routeName = trim((string) ($row[$fixedColumnIndex['rute']] ?? ''));
 
-            if ($satpamName === '' || $routeName === '' || $startDateRaw === ''
-                || $endDateRaw === '' || $shiftStartRaw === '' || $shiftEndRaw === ''
-            ) {
-                $errors[] = ['row' => $rowNumber, 'message' => 'Ada kolom wajib yang kosong.'];
+            // NIPKWT kadang kebaca sebagai angka (float) oleh Excel, rapikan
+            // jadi string digit murni supaya cocok dengan yang tersimpan.
+            $nipkwt = is_numeric($nipkwtRaw) ? (string) (int) $nipkwtRaw : $nipkwtRaw;
+
+            // Kalau Nama & NIPKWT dua-duanya kosong, anggap sudah keluar dari
+            // blok data (misal masuk ke bagian legenda/catatan di bawah
+            // tabel) — berhenti baca sama sekali, bukan cuma dilewati.
+            if ($nama === '' && $nipkwt === '') {
+                break;
+            }
+
+            if ($nipkwt === '' || $routeName === '') {
+                $errors[] = ['row' => $rowNumber, 'message' => 'NIPKWT dan Rute wajib diisi.'];
                 continue;
             }
 
-            $matchingSatpam = Satpam::whereHas('user', function ($query) use ($satpamName) {
-                $query->whereRaw('LOWER(name) = ?', [strtolower($satpamName)]);
-            })->get();
+            $user = User::where('nipkwt', $nipkwt)->first();
 
-            if ($matchingSatpam->isEmpty()) {
-                $errors[] = ['row' => $rowNumber, 'message' => "Satpam '{$satpamName}' tidak ditemukan."];
+            if (! $user) {
+                $errors[] = ['row' => $rowNumber, 'message' => "NIPKWT '{$nipkwt}' ({$nama}) tidak ditemukan di sistem."];
+                continue;
+            }
+            if ((int) $user->location_id !== (int) $locationId) {
+    $errors[] = [
+        'row' => $rowNumber,
+        'message' => "{$user->name} (NIPKWT {$nipkwt}) berada di lokasi berbeda dari supervisor.",
+    ];
+    continue;
+}
+
+            if (! in_array($user->role, ['satpam', 'katim'])) {
+                $errors[] = ['row' => $rowNumber, 'message' => "{$user->name} (NIPKWT {$nipkwt}) rolenya '{$user->role}', bukan satpam/katim, tidak bisa diberi jadwal patroli."];
                 continue;
             }
 
-            if ($matchingSatpam->count() > 1) {
-                $errors[] = ['row' => $rowNumber, 'message' => "Ada lebih dari 1 satpam bernama '{$satpamName}', gunakan nama yang lebih spesifik."];
+            $satpam = Satpam::where('user_id', $user->id)->first();
+
+            if (! $satpam) {
+                $errors[] = ['row' => $rowNumber, 'message' => "Data satpam untuk {$user->name} (NIPKWT {$nipkwt}) tidak ditemukan."];
                 continue;
             }
 
-            $satpam = $matchingSatpam->first();
+            $expectedJabatan = $user->role === 'katim' ? "KATIM {$user->tim}" : 'PAM';
+
+            if ($jabatanRaw !== '' && strcasecmp(trim($jabatanRaw), $expectedJabatan) !== 0) {
+                $errors[] = ['row' => $rowNumber, 'message' => "Jabatan '{$jabatanRaw}' untuk {$user->name} tidak sesuai data sistem (harusnya '{$expectedJabatan}')."];
+                continue;
+            }
 
             $route = PatrolRoute::with('points')
-                ->whereRaw('LOWER(name) = ?', [strtolower($routeName)])
+                ->whereRaw('LOWER(TRIM(name)) = ?', [strtolower(trim($routeName))])
                 ->first();
 
             if (! $route) {
@@ -999,77 +1379,72 @@ public function reviewSkip($id)
                 continue;
             }
 
-            try {
-                $startDate = $this->parseImportDate($startDateRaw);
-                $endDate = $this->parseImportDate($endDateRaw);
-                $shiftStart = $this->parseImportTime($shiftStartRaw);
-                $shiftEnd = $this->parseImportTime($shiftEndRaw);
-            } catch (\Throwable $e) {
-                $errors[] = ['row' => $rowNumber, 'message' => 'Format tanggal/jam tidak valid. Pakai YYYY-MM-DD untuk tanggal dan HH:MM untuk jam.'];
-                continue;
-            }
-
-            if ($endDate->lt($startDate)) {
-                $errors[] = ['row' => $rowNumber, 'message' => 'Tanggal selesai tidak boleh sebelum tanggal mulai.'];
-                continue;
-            }
-
-            DB::transaction(function () use ($supervisor, $satpam, $route, $startDate, $endDate, $shiftStart, $shiftEnd) {
-                $schedule = Schedule::create([
-                    'supervisor_id' => $supervisor->id,
-                    'title'         => "Jadwal {$satpam->user->name} - {$route->name}",
-                    'description'   => null,
-                    'start_date'    => $startDate->toDateString(),
-                    'end_date'      => $endDate->toDateString(),
-                    'status'        => 'aktif',
-                ]);
-
-                $startingSequence = ScheduleDetail::where('satpam_id', $satpam->id)
-                    ->whereHas('schedule', fn ($query) => $query->where('start_date', $startDate->toDateString()))
-                    ->count();
-
-                foreach ($route->points as $index => $routePoint) {
-                    ScheduleDetail::create([
-                        'schedule_id'     => $schedule->id,
-                        'satpam_id'       => $satpam->id,
-                        'patrol_point_id' => $routePoint->patrol_point_id,
-                        'shift_start'     => $shiftStart,
-                        'shift_end'       => $shiftEnd,
-                        'sequence_order'  => $startingSequence + $index + 1,
-                    ]);
+            foreach ($dayColumnIndex as $day => $colIndex) {
+                if (! checkdate($bulan, $day, $tahun)) {
+                    continue; // tanggal gak ada di bulan ini (mis. 31 di bulan 30 hari)
                 }
-            });
 
-            $imported++;
+                $code = strtoupper(trim((string) ($row[$colIndex] ?? '')));
+
+                if ($code === '' || $code === 'L') {
+                    continue; // libur / kosong = gak ada jadwal hari itu
+                }
+
+                if (! isset(self::SHIFT_TIMES[$code])) {
+                    $errors[] = [
+                        'row' => $rowNumber,
+                        'message' => "{$user->name} (NIPKWT {$nipkwt}) tanggal {$day}: kode '{$code}' tidak dikenali (harus P/S/M/L).",
+                    ];
+                    continue;
+                }
+
+                $date = Carbon::create($tahun, $bulan, $day)->toDateString();
+
+                $alreadyExists = ScheduleDetail::where('satpam_id', $satpam->id)
+                    ->whereHas('schedule', fn ($q) => $q->whereDate('start_date', $date)->whereDate('end_date', $date))
+                    ->exists();
+
+                if ($alreadyExists) {
+                    $errors[] = [
+                        'row' => $rowNumber,
+                        'message' => "{$user->name} (NIPKWT {$nipkwt}) tanggal {$day}: sudah ada jadwal, dilewati.",
+                    ];
+                    continue;
+                }
+
+                [$shiftStart, $shiftEnd] = self::SHIFT_TIMES[$code];
+
+                DB::transaction(function () use ($supervisor, $satpam, $user, $route, $date, $shiftStart, $shiftEnd) {
+                    $schedule = Schedule::create([
+                        'supervisor_id' => $supervisor->id,
+                        'title'         => "Jadwal {$user->name} - {$route->name}",
+                        'description'   => null,
+                        'start_date'    => $date,
+                        'end_date'      => $date,
+                        'status'        => 'aktif',
+                    ]);
+
+                    foreach ($route->points as $index => $routePoint) {
+                        ScheduleDetail::create([
+                            'schedule_id'     => $schedule->id,
+                            'satpam_id'       => $satpam->id,
+                            'patrol_point_id' => $routePoint->patrol_point_id,
+                            'shift_start'     => $shiftStart,
+                            'shift_end'       => $shiftEnd,
+                            'sequence_order'  => $index + 1,
+                        ]);
+                    }
+                });
+
+                $imported++;
+            }
         }
 
         return response()->json([
-            'message'  => "Import selesai. {$imported} jadwal berhasil ditambahkan, " . count($errors) . ' baris gagal.',
+            'message'  => "Import selesai. {$imported} jadwal harian berhasil ditambahkan, " . count($errors) . ' bermasalah.',
             'imported' => $imported,
             'failed'   => count($errors),
             'errors'   => $errors,
         ]);
-    }
-
-    /**
-     * Baca tanggal dari cell Excel/CSV. Excel kadang nyimpen tanggal sebagai
-     * angka serial (kalau cell-nya diformat sebagai Date), jadi ditangani dua-duanya.
-     */
-    private function parseImportDate(string $value): Carbon
-    {
-        if (is_numeric($value)) {
-            return Carbon::instance(ExcelDate::excelToDateTimeObject((float) $value));
-        }
-
-        return Carbon::parse($value);
-    }
-
-    private function parseImportTime(string $value): string
-    {
-        if (is_numeric($value)) {
-            return ExcelDate::excelToDateTimeObject((float) $value)->format('H:i');
-        }
-
-        return Carbon::parse(str_replace('.', ':', $value))->format('H:i');
     }
 }

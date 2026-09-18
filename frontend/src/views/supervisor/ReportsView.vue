@@ -269,134 +269,172 @@
           </div>
 
           <!-- TABLE -->
-          <div v-else class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Satpam</th>
-                  <th>Titik Patroli</th>
-                  <th>Waktu</th>
-                  <th>Status</th>
-                  <th>Laporan</th>
-                  <th>Aksi</th>
-                </tr>
-              </thead>
+          <!-- TABLE + PAGINATION -->
+          <div v-else>
+            <!-- TABLE -->
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Satpam</th>
+                    <th>Titik Patroli</th>
+                    <th>Waktu</th>
+                    <th>Status</th>
+                    <th>Laporan</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                <tr v-for="report in reports" :key="report.id">
-                  <!-- SATPAM -->
-                  <td>
-                    <div class="satpam-cell">
-                      <div class="avatar">
-                        {{ getInitial(report.satpam_name) }}
+                <tbody>
+                  <tr v-for="report in paginatedReports" :key="report.id">
+                    <!-- SATPAM -->
+                    <td>
+                      <div class="satpam-cell">
+                        <div class="avatar">
+                          {{ getInitial(report.satpam_name) }}
+                        </div>
+
+                        <div class="satpam-info">
+                          <strong>
+                            {{ report.satpam_name || "-" }}
+                          </strong>
+
+                          <small> Badge: {{ report.badge_number || "-" }} </small>
+                        </div>
                       </div>
+                    </td>
 
-                      <div class="satpam-info">
+                    <!-- PATROL POINT -->
+                    <td>
+                      <div class="point-cell">
+                        <span class="point-icon">◉</span>
+
+                        <span class="point-name">
+                          {{ report.patrol_point || "-" }}
+                        </span>
+                      </div>
+                    </td>
+
+                    <!-- TIME -->
+                    <td>
+                      <div class="time-cell">
                         <strong>
-                          {{ report.satpam_name || "-" }}
+                          {{ formatDate(report.scan_time) }}
                         </strong>
 
-                        <small> Badge: {{ report.badge_number || "-" }} </small>
+                        <small>
+                          {{ formatTime(report.scan_time) }}
+                        </small>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  <!-- PATROL POINT -->
-                  <td>
-                    <div class="point-cell">
-                      <span class="point-icon">◉</span>
-
-                      <span class="point-name">
-                        {{ report.patrol_point || "-" }}
+                    <!-- STATUS -->
+                    <td>
+                      <span class="status-badge" :class="getStatusClass(report.scan_status)">
+                        <span class="status-dot"></span>
+                        {{ formatStatus(report.scan_status) }}
                       </span>
-                    </div>
-                  </td>
+                    </td>
 
-                  <!-- TIME -->
-                  <td>
-                    <div class="time-cell">
-                      <strong>
-                        {{ formatDate(report.scan_time) }}
-                      </strong>
+                    <!-- REPORT -->
+                    <td>
+                      <!-- ADA LAPORAN -->
+                      <div v-if="report.report_id" class="report-cell">
+                        <strong>
+                          {{ report.report_title || "Laporan" }}
+                        </strong>
 
-                      <small>
-                        {{ formatTime(report.scan_time) }}
-                      </small>
-                    </div>
-                  </td>
+                        <small>
+                          {{ truncate(report.report_description, 55) }}
+                        </small>
 
-                  <!-- STATUS -->
-                  <td>
-                    <span class="status-badge" :class="getStatusClass(report.scan_status)">
-                      <span class="status-dot"></span>
-                      {{ formatStatus(report.scan_status) }}
-                    </span>
-                  </td>
+                        <!-- STATUS REVIEW LAPORAN -->
+                        <span
+                          v-if="report.review_status === 'pending'"
+                          class="review-badge review-pending"
+                        >
+                          <span class="review-dot"></span>
+                          Belum Ditinjau
+                        </span>
 
-                  <!-- REPORT -->
-                  <td>
-                    <!-- ADA LAPORAN -->
-                    <div v-if="report.report_id" class="report-cell">
-                      <strong>
-                        {{ report.report_title || "Laporan" }}
-                      </strong>
+                        <span
+                          v-else-if="report.review_status === 'reviewed'"
+                          class="review-badge review-reviewed"
+                        >
+                          <span class="review-dot"></span>
+                          Sudah Ditinjau
+                        </span>
+                      </div>
 
-                      <small>
-                        {{ truncate(report.report_description, 55) }}
-                      </small>
+                      <!-- SKIP SCAN -->
+                      <div v-else-if="report.scan_status === 'skip'" class="report-cell skip-cell">
+                        <strong>Skip Scan</strong>
 
-                      <!-- STATUS REVIEW LAPORAN -->
-                      <span
-                        v-if="report.review_status === 'pending'"
-                        class="review-badge review-pending"
-                      >
-                        <span class="review-dot"></span>
-                        Belum Ditinjau
-                      </span>
+                        <small>
+                          {{ report.skip_reason || "Tidak ada alasan skip." }}
+                        </small>
 
-                      <span
-                        v-else-if="report.review_status === 'reviewed'"
-                        class="review-badge review-reviewed"
-                      >
-                        <span class="review-dot"></span>
-                        Sudah Ditinjau
-                      </span>
-                    </div>
+                        <!-- STATUS REVIEW SKIP -->
+                        <span
+                          v-if="report.skip_review_status === 'reviewed'"
+                          class="review-badge review-reviewed"
+                        >
+                          <span class="review-dot"></span>
+                          Sudah Ditinjau
+                        </span>
 
-                    <!-- SKIP SCAN -->
-                    <div v-else-if="report.scan_status === 'skip'" class="report-cell skip-cell">
-                      <strong>Skip Scan</strong>
+                        <span v-else class="review-badge review-pending">
+                          <span class="review-dot"></span>
+                          Belum Ditinjau
+                        </span>
+                      </div>
 
-                      <small>
-                        {{ report.skip_reason || "Tidak ada alasan skip." }}
-                      </small>
+                      <!-- TIDAK ADA LAPORAN / SKIP -->
+                      <span v-else class="no-report"> Belum ada laporan </span>
+                    </td>
 
-                      <!-- STATUS REVIEW SKIP -->
-                      <span
-                        v-if="report.skip_review_status === 'reviewed'"
-                        class="review-badge review-reviewed"
-                      >
-                        <span class="review-dot"></span>
-                        Sudah Ditinjau
-                      </span>
+                    <!-- ACTION -->
+                    <td>
+                      <button class="detail-btn" @click="goToDetail(report.id)">
+                        Lihat Detail
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-                      <span v-else class="review-badge review-pending">
-                        <span class="review-dot"></span>
-                        Belum Ditinjau
-                      </span>
-                    </div>
+            <!-- PAGINATION -->
+            <div v-if="totalPages > 1" class="pagination">
+              <!-- PREVIOUS -->
+              <button
+                class="pagination-btn"
+                :disabled="currentPage === 1"
+                @click="changePage(currentPage - 1)"
+              >
+                ‹
+              </button>
 
-                    <!-- TIDAK ADA LAPORAN / SKIP -->
-                    <span v-else class="no-report"> Belum ada laporan </span>
-                  </td>
+              <!-- PAGE NUMBERS -->
+              <button
+                v-for="page in visiblePages"
+                :key="page"
+                class="pagination-btn"
+                :class="{ active: currentPage === page }"
+                @click="changePage(page)"
+              >
+                {{ page }}
+              </button>
 
-                  <!-- ACTION -->
-                  <td>
-                    <button class="detail-btn" @click="goToDetail(report.id)">Lihat Detail</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              <!-- NEXT -->
+              <button
+                class="pagination-btn"
+                :disabled="currentPage === totalPages"
+                @click="changePage(currentPage + 1)"
+              >
+                ›
+              </button>
+            </div>
           </div>
         </section>
       </div>
@@ -490,6 +528,12 @@ const loading = ref(false);
 const error = ref("");
 
 // =====================================================
+// PAGINATION
+// =====================================================
+const currentPage = ref(1);
+const perPage = 10;
+
+// =====================================================
 // STATISTICS
 // =====================================================
 
@@ -516,12 +560,55 @@ const filters = ref({
 });
 
 // =====================================================
+// PAGINATION DATA
+// =====================================================
+const totalPages = computed(() => {
+  return Math.ceil(reports.value.length / perPage);
+});
+
+const paginatedReports = computed(() => {
+  const start = (currentPage.value - 1) * perPage;
+  const end = start + perPage;
+
+  return reports.value.slice(start, end);
+});
+
+const visiblePages = computed(() => {
+  const pages = [];
+  const maxVisible = 5;
+
+  let start = Math.max(1, currentPage.value - 2);
+  let end = Math.min(totalPages.value, start + maxVisible - 1);
+
+  if (end - start + 1 < maxVisible) {
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+
+  return pages;
+});
+
+const changePage = (page) => {
+  if (page < 1 || page > totalPages.value) return;
+
+  currentPage.value = page;
+
+  // Scroll kembali ke bagian atas tabel
+  document.querySelector(".table-panel")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+};
+
+// =====================================================
 // FETCH REPORTS
 // =====================================================
 
 const fetchReports = async () => {
   loading.value = true;
-
   error.value = "";
 
   try {
@@ -543,10 +630,8 @@ const fetchReports = async () => {
 
     const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/reports", {
       params,
-
       headers: {
         Authorization: `Bearer ${token}`,
-
         Accept: "application/json",
       },
     });
@@ -555,13 +640,13 @@ const fetchReports = async () => {
 
     statistics.value = response.data.statistics || {
       total_reports: 0,
-
       pending_reports: 0,
-
       skip_reports: 0,
-
       anomaly_reports: 0,
     };
+
+    // Kembali ke halaman pertama setelah data/filter berubah
+    currentPage.value = 1;
   } catch (err) {
     console.error("ERROR FETCH REPORTS:", err);
 
@@ -723,6 +808,54 @@ onMounted(() => {
   color: var(--text-primary);
 
   font-family: "Segoe UI", Arial, sans-serif;
+}
+
+/* =====================================================
+   PAGINATION
+===================================================== */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px 24px;
+  border-top: 1px solid var(--border);
+  background: #fafbfc;
+}
+
+.pagination-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #fff9f3;
+}
+
+.pagination-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* =====================================================

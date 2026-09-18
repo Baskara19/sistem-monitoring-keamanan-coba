@@ -23,8 +23,8 @@
           <h2>{{ user.name }}</h2>
 
           <p>
-            Satpam ID:
-            <strong>{{ satpamId }}</strong>
+            NIPKWT:
+            <strong>{{ nipkwt }}</strong>
           </p>
 
           <div v-if="currentShift" class="shift-badge">
@@ -268,8 +268,6 @@
         <span>Log Out</span>
       </button>
     </nav>
-
-    <InstallAppPrompt />
   </div>
 </template>
 
@@ -277,7 +275,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import axios from "axios";
 import { useRouter } from "vue-router";
-import InstallAppPrompt from "@/components/InstallAppPrompt.vue";
 
 const router = useRouter();
 
@@ -327,7 +324,7 @@ const goToScan = () => {
 |--------------------------------------------------------------------------
 */
 
-const satpamId = ref("-");
+const nipkwt = ref("-");
 const currentShift = ref(null);
 
 const summary = ref({
@@ -355,7 +352,7 @@ const fetchSummary = async () => {
       anomaly: response.data.anomaly ?? 0,
     };
 
-    satpamId.value = response.data.satpam_id || "-";
+    nipkwt.value = response.data.nipkwt || "-";
     currentShift.value = response.data.current_shift || null;
   } catch (err) {
     console.error(err);

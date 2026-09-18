@@ -1,7 +1,9 @@
+// UserView.vue
 <script setup>
 import { ref, onMounted, computed } from "vue";
 import axios from "axios";
 import { useRouter } from "vue-router";
+import Swal from "sweetalert2";
 
 const router = useRouter();
 
@@ -10,20 +12,27 @@ const loading = ref(true);
 const error = ref("");
 const search = ref("");
 const filterRole = ref("");
+const locations = ref([]);
+const locationLoading = ref(false);
+const locationError = ref("");
 
 const showModal = ref(false);
 const modalMode = ref("create");
 const selectedUser = ref(null);
+const showLocationModal = ref(false);
 
 const form = ref({
   name: "",
   username: "",
+  nipkwt: "",
   email: "",
   password: "",
   role: "satpam",
+  tim: "",
   status: "aktif",
   phone: "",
   location: "",
+  location_id: "",
 });
 
 const user = ref({ name: "Admin", role: "admin" });
@@ -36,6 +45,11 @@ const getAuthHeaders = () => {
 const loadUser = () => {
   const storedUser = localStorage.getItem("user");
   if (storedUser) user.value = JSON.parse(storedUser);
+};
+
+const openLocationModal = async () => {
+  showLocationModal.value = true;
+  await fetchLocations();
 };
 
 const fetchUsers = async () => {
@@ -51,43 +65,228 @@ const fetchUsers = async () => {
   }
 };
 
+const fetchLocations = async () => {
+  locationLoading.value = true;
+  locationError.value = "";
+
+  try {
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/locations", getAuthHeaders());
+
+    locations.value = response.data;
+  } catch (err) {
+    console.error("Gagal mengambil data lokasi:", err);
+
+    locationError.value = err.response?.data?.message || "Gagal mengambil data lokasi.";
+  } finally {
+    locationLoading.value = false;
+  }
+};
+
+const showLocationForm = ref(false);
+const locationForm = ref({
+  name: "",
+  status: "aktif",
+});
+const locationSaving = ref(false);
+const locationEditMode = ref(false);
+const selectedLocation = ref(null);
+
+const openLocationForm = () => {
+  locationEditMode.value = false;
+  selectedLocation.value = null;
+
+  locationForm.value = {
+    name: "",
+    status: "aktif",
+  };
+
+  showLocationForm.value = true;
+};
+
+const openEditLocation = (location) => {
+  locationEditMode.value = true;
+  selectedLocation.value = location;
+
+  locationForm.value = {
+    name: location.name,
+    status: location.status,
+  };
+
+  showLocationForm.value = true;
+};
+
+const saveLocation = async () => {
+  if (!locationForm.value.name.trim()) {
+    await Swal.fire({
+      icon: "warning",
+      title: "Nama Belum Diisi",
+      text: "Nama lokasi wajib diisi.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#e87500",
+    });
+    return;
+  }
+
+  locationSaving.value = true;
+
+  try {
+    if (locationEditMode.value && selectedLocation.value) {
+      await axios.put(
+        `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/locations/${selectedLocation.value.id}`,
+        {
+          name: locationForm.value.name.trim(),
+          status: locationForm.value.status,
+        },
+        getAuthHeaders(),
+      );
+
+      await Swal.fire({
+        icon: "success",
+        title: "Berhasil!",
+        text: "Lokasi berhasil diperbarui.",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#1f2454",
+      });
+    } else {
+      await axios.post(
+        "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/locations",
+        {
+          name: locationForm.value.name.trim(),
+          status: "aktif",
+        },
+        getAuthHeaders(),
+      );
+
+      await Swal.fire({
+        icon: "success",
+        title: "Berhasil!",
+        text: "Lokasi berhasil ditambahkan.",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#1f2454",
+      });
+    }
+
+    showLocationForm.value = false;
+    locationEditMode.value = false;
+    selectedLocation.value = null;
+
+    await fetchLocations();
+  } catch (err) {
+    console.error("Gagal menyimpan lokasi:", err);
+
+    await Swal.fire({
+      icon: "error",
+      title: "Gagal",
+      text: err.response?.data?.message || "Gagal menyimpan lokasi.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#d63031",
+    });
+  } finally {
+    locationSaving.value = false;
+  }
+};
+
+const toggleLocationStatus = async (location) => {
+  const newStatus = location.status === "aktif" ? "nonaktif" : "aktif";
+
+  const result = await Swal.fire({
+    icon: "warning",
+    title: `Yakin ingin ${newStatus === "aktif" ? "mengaktifkan" : "menonaktifkan"} lokasi ini?`,
+    text: `Lokasi "${location.name}" akan di${newStatus === "aktif" ? "aktifkan" : "nonaktifkan"}.`,
+    showCancelButton: true,
+    confirmButtonText: "Ya, Lanjutkan",
+    cancelButtonText: "Batal",
+    reverseButtons: true,
+    focusCancel: true,
+  });
+
+  if (!result.isConfirmed) {
+    return;
+  }
+
+  try {
+    await axios.put(
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/locations/${location.id}`,
+      {
+        name: location.name,
+        status: newStatus,
+      },
+      getAuthHeaders(),
+    );
+
+    await fetchLocations();
+
+    await Swal.fire({
+      icon: "success",
+      title: "Berhasil!",
+      text: newStatus === "aktif" ? "Lokasi berhasil diaktifkan." : "Lokasi berhasil dinonaktifkan.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#1f2454",
+    });
+  } catch (err) {
+    console.error("Gagal mengubah status lokasi:", err);
+
+    await Swal.fire({
+      icon: "error",
+      title: "Gagal",
+      text: err.response?.data?.message || "Gagal mengubah status lokasi.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#d63031",
+    });
+  }
+};
+
 const filteredUsers = computed(() => {
+  const keyword = search.value.trim().toLowerCase();
+
   return users.value.filter((u) => {
     const matchSearch =
-      u.name.toLowerCase().includes(search.value.toLowerCase()) ||
-      (u.username && u.username.toLowerCase().includes(search.value.toLowerCase()));
+      String(u.name || "").toLowerCase().includes(keyword) ||
+      String(u.username || "").toLowerCase().includes(keyword) ||
+      String(u.location || "").toLowerCase().includes(keyword);
+
     const matchRole = filterRole.value === "" || u.role === filterRole.value;
-    return matchSearch && matchRole;
+
+    const matchStatus = u.status === "aktif";
+
+    return matchSearch && matchRole && matchStatus;
   });
 });
-
 const openCreateModal = () => {
   modalMode.value = "create";
+  error.value = "";
   form.value = {
     name: "",
     username: "",
+    nipkwt: "",
     email: "",
     password: "",
     role: "satpam",
+    tim: "",
     status: "aktif",
     phone: "",
     location: "",
+    location_id: "",
   };
   showModal.value = true;
 };
 
 const openEditModal = (u) => {
   modalMode.value = "edit";
+  error.value = "";
   selectedUser.value = u;
   form.value = {
     name: u.name,
     username: u.username || "",
+    nipkwt: u.nipkwt || "",
     email: u.email,
     password: "",
     role: u.role,
+    tim: u.tim || "",
     status: u.status,
     phone: u.phone || "",
     location: u.location || "",
+    location_id: u.location_id || "",
   };
   showModal.value = true;
 };
@@ -122,12 +321,37 @@ const submitForm = async () => {
     return;
   }
 
+  // NIPKWT wajib angka 6-12 digit
+  if (!/^\d{6,12}$/.test(form.value.nipkwt)) {
+    error.value = "NIPKWT harus berupa angka, 6-12 digit.";
+    return;
+  }
+
+  // Role Katim wajib punya nomor tim
+  if (form.value.role === "katim" && !form.value.tim) {
+    error.value = "Nomor tim wajib diisi untuk role Katim.";
+    return;
+  }
+
   try {
     // ==============================
     // TAMBAH USER
     // ==============================
     if (modalMode.value === "create") {
-      await axios.post("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users", form.value, getAuthHeaders());
+      const createData = {
+        name: form.value.name,
+        username: form.value.username,
+        nipkwt: form.value.nipkwt,
+        email: form.value.email,
+        password: form.value.password,
+        role: form.value.role,
+        tim: form.value.role === "katim" ? form.value.tim : null,
+        phone: form.value.phone,
+        location: form.value.location,
+        location_id: form.value.location_id || null,
+      };
+
+      await axios.post("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users", createData, getAuthHeaders());
     }
 
     // ==============================
@@ -137,11 +361,14 @@ const submitForm = async () => {
       const updateData = {
         name: form.value.name,
         username: form.value.username,
+        nipkwt: form.value.nipkwt,
         email: form.value.email,
         role: form.value.role,
+        tim: form.value.role === "katim" ? form.value.tim : null,
         status: form.value.status,
         phone: form.value.phone,
         location: form.value.location,
+        location_id: form.value.location_id || null,
       };
 
       // Password hanya dikirim kalau memang diisi
@@ -166,17 +393,11 @@ const submitForm = async () => {
     closeModal();
     await fetchUsers();
   } catch (err) {
-  console.error("ERROR:", err);
+    console.error("ERROR:", err);
 
-  console.log(
-    "RESPONSE DETAIL:",
-    JSON.stringify(err.response?.data, null, 2)
-  );
+    console.log("RESPONSE DETAIL:", JSON.stringify(err.response?.data, null, 2));
 
-  console.log(
-    "VALIDATION ERRORS:",
-    JSON.stringify(err.response?.data?.errors, null, 2)
-  );
+    console.log("VALIDATION ERRORS:", JSON.stringify(err.response?.data?.errors, null, 2));
 
     // ==============================
     // ERROR VALIDASI LARAVEL 422
@@ -202,12 +423,48 @@ const submitForm = async () => {
 };
 
 const deleteUser = async (id) => {
-  if (!confirm("Yakin ingin menghapus user ini?")) return;
+  const result = await Swal.fire({
+    icon: "warning",
+    title: "Arsipkan User Ini?",
+    text: "User akan dipindahkan ke arsip dan dinonaktifkan.",
+    showCancelButton: true,
+    confirmButtonText: "Ya, Arsipkan",
+    cancelButtonText: "Batal",
+    reverseButtons: true,
+    focusCancel: true,
+  });
+
+  if (!result.isConfirmed) return;
+
   try {
-    await axios.delete(`https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users/${id}`, getAuthHeaders());
+    await axios.put(
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/users/${id}/archive`,
+      {
+        status: "nonaktif",
+      },
+      getAuthHeaders(),
+    );
+
+    await Swal.fire({
+      icon: "success",
+      title: "Berhasil!",
+      text: "User berhasil dipindahkan ke arsip.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#1f2454",
+    });
+
     fetchUsers();
   } catch (err) {
-    error.value = err.response?.data?.message || "Gagal menghapus user.";
+    const message = err.response?.data?.message || "Gagal mengarsipkan user.";
+    error.value = message;
+
+    await Swal.fire({
+      icon: "error",
+      title: "Gagal",
+      text: message,
+      confirmButtonText: "OK",
+      confirmButtonColor: "#d63031",
+    });
   }
 };
 
@@ -219,14 +476,16 @@ const logout = () => {
 
 const displayName = computed(() => user.value?.name || "Admin");
 
-const roleLabel = (role) => {
-  const labels = { satpam: "Satpam", supervisor: "Supervisor", admin: "Admin" };
-  return labels[role] || role;
+const roleLabel = (u) => {
+  const labels = { satpam: "Satpam", supervisor: "Supervisor", admin: "Admin", katim: "Katim" };
+  const label = labels[u.role] || u.role;
+  return u.role === "katim" && u.tim ? `${label} ${u.tim}` : label;
 };
 
 onMounted(() => {
   loadUser();
   fetchUsers();
+  fetchLocations();
 });
 </script>
 
@@ -301,7 +560,15 @@ onMounted(() => {
             <h2>Daftar Pengguna</h2>
             <p>Total {{ filteredUsers.length }} pengguna ditemukan</p>
           </div>
-          <button class="btn-primary" @click="openCreateModal">+ Tambah User</button>
+          <div class="header-actions">
+            <button class="btn-secondary" @click="router.push('/admin/users/archive')">
+              📁 Arsip Satpam
+            </button>
+            <button class="btn-secondary" type="button" @click="openLocationModal">
+              📍 Kelola Lokasi
+            </button>
+            <button class="btn-primary" @click="openCreateModal">+ Tambah User</button>
+          </div>
         </div>
 
         <!-- FILTER ROW -->
@@ -309,7 +576,7 @@ onMounted(() => {
           <input
             v-model="search"
             type="text"
-            placeholder="Cari nama atau username..."
+            placeholder="Cari nama, username, atau lokasi..."
             class="search-input"
           />
           <select v-model="filterRole" class="filter-select">
@@ -317,6 +584,7 @@ onMounted(() => {
             <option value="admin">Admin</option>
             <option value="supervisor">Supervisor</option>
             <option value="satpam">Satpam</option>
+            <option value="katim">Katim</option>
           </select>
         </div>
 
@@ -333,6 +601,7 @@ onMounted(() => {
               <tr>
                 <th>Nama</th>
                 <th>Username</th>
+                <th>NIPKWT</th>
                 <th>Role</th>
                 <th>Status</th>
                 <th>Lokasi</th>
@@ -341,7 +610,7 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-if="filteredUsers.length === 0">
-                <td colspan="6" class="empty-state">Tidak ada data yang ditemukan.</td>
+                <td colspan="7" class="empty-state">Tidak ada data yang ditemukan.</td>
               </tr>
               <tr v-for="u in filteredUsers" :key="u.id">
                 <td>
@@ -351,7 +620,8 @@ onMounted(() => {
                   </div>
                 </td>
                 <td class="text-secondary">{{ u.username || "-" }}</td>
-                <td>{{ roleLabel(u.role) }}</td>
+                <td class="text-secondary">{{ u.nipkwt || "-" }}</td>
+                <td>{{ roleLabel(u) }}</td>
                 <td>
                   <span :class="'badge badge-' + u.status">
                     {{ u.status === "aktif" ? "Aktif" : "Nonaktif" }}
@@ -387,6 +657,11 @@ onMounted(() => {
         </div>
 
         <div class="modal-body">
+          <div v-if="error" class="modal-error">
+            <span>⚠</span>
+            <p>{{ error }}</p>
+          </div>
+
           <div class="form-row">
             <div class="form-group">
               <label>Nama Lengkap</label>
@@ -398,9 +673,28 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="form-group">
-            <label>Email</label>
-            <input v-model="form.email" type="email" placeholder="email@example.com" />
+          <div class="form-row">
+            <div class="form-group">
+              <label>NIPKWT</label>
+              <input
+                v-model="form.nipkwt"
+                type="text"
+                inputmode="numeric"
+                maxlength="12"
+                placeholder="Angka 6-12 digit"
+                @input="form.nipkwt = form.nipkwt.replace(/\D/g, '')"
+              />
+              <small
+                v-if="form.nipkwt.length > 0 && (form.nipkwt.length < 6 || form.nipkwt.length > 12)"
+                class="password-hint"
+              >
+                NIPKWT harus angka 6-12 digit.
+              </small>
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input v-model="form.email" type="email" placeholder="email@example.com" />
+            </div>
           </div>
 
           <div class="form-group">
@@ -432,7 +726,18 @@ onMounted(() => {
             </div>
             <div class="form-group">
               <label>Lokasi</label>
-              <input v-model="form.location" type="text" placeholder="DAOP 6 Yogyakarta" />
+
+              <select v-model="form.location_id">
+                <option value="">Pilih lokasi</option>
+
+                <option
+                  v-for="location in locations.filter((l) => l.status === 'aktif')"
+                  :key="location.id"
+                  :value="location.id"
+                >
+                  {{ location.name }}
+                </option>
+              </select>
             </div>
           </div>
 
@@ -441,11 +746,26 @@ onMounted(() => {
               <label>Role</label>
               <select v-model="form.role">
                 <option value="satpam">Satpam</option>
+                <option value="katim">Katim</option>
                 <option value="supervisor">Supervisor</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <div class="form-group" v-if="modalMode === 'edit'">
+            <div class="form-group" v-if="form.role === 'katim'">
+              <label>Nomor Tim</label>
+              <input v-model="form.tim" type="number" min="1" placeholder="Contoh: 1, 2, 3, ..." />
+            </div>
+            <div class="form-group" v-if="modalMode === 'edit' && form.role !== 'katim'">
+              <label>Status</label>
+              <select v-model="form.status">
+                <option value="aktif">Aktif</option>
+                <option value="nonaktif">Nonaktif</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row" v-if="modalMode === 'edit' && form.role === 'katim'">
+            <div class="form-group">
               <label>Status</label>
               <select v-model="form.status">
                 <option value="aktif">Aktif</option>
@@ -460,6 +780,113 @@ onMounted(() => {
           <button class="btn-primary" @click="submitForm">
             {{ modalMode === "create" ? "Simpan" : "Update" }}
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Modal Kelola Lokasi -->
+  <div v-if="showLocationModal" class="modal-overlay" @click.self="showLocationModal = false">
+    <div class="modal location-modal">
+      <div class="modal-header">
+        <h3>Kelola Lokasi</h3>
+
+        <div class="modal-header-actions">
+          <button type="button" class="location-add-btn" @click="openLocationForm">
+            + Tambah Lokasi
+          </button>
+
+          <button type="button" class="btn-close" @click="showLocationModal = false">×</button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <!-- Loading -->
+        <div v-if="locationLoading" class="text-center py-4">Memuat lokasi...</div>
+
+        <!-- Error -->
+        <div v-else-if="locationError" class="alert alert-danger">
+          {{ locationError }}
+        </div>
+
+        <!-- Daftar lokasi -->
+        <div v-else class="location-list">
+          <div v-for="location in locations" :key="location.id" class="location-item">
+            <div class="location-info">
+              <div class="location-name">
+                {{ location.name }}
+              </div>
+
+              <div
+                class="location-status"
+                :class="location.status === 'aktif' ? 'status-active' : 'status-inactive'"
+              >
+                {{ location.status === "aktif" ? "Aktif" : "Nonaktif" }}
+              </div>
+            </div>
+
+            <div class="location-actions">
+              <button type="button" class="location-edit-btn" @click="openEditLocation(location)">
+                ✏️
+              </button>
+
+              <button
+                type="button"
+                class="location-status-btn"
+                :class="location.status === 'aktif' ? 'deactivate' : 'activate'"
+                @click="toggleLocationStatus(location)"
+              >
+                {{ location.status === "aktif" ? "Nonaktifkan" : "Aktifkan" }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="locations.length === 0" class="text-center py-4 text-secondary">
+            Belum ada lokasi.
+          </div>
+        </div>
+
+        <!-- Form Tambah Lokasi -->
+        <div v-if="showLocationForm" class="location-form">
+          <h4>
+            {{ locationEditMode ? "Edit Lokasi" : "Tambah Lokasi" }}
+          </h4>
+
+          <div class="form-group">
+            <label>Nama Lokasi</label>
+
+            <input
+              v-model="locationForm.name"
+              type="text"
+              placeholder="Contoh: Stasiun Solo Balapan"
+              @keyup.enter="saveLocation"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Status</label>
+
+            <select v-model="locationForm.status" class="location-status-select">
+              <option value="aktif">Aktif</option>
+              <option value="nonaktif">Nonaktif</option>
+            </select>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn-secondary" @click="showLocationForm = false">
+              Batal
+            </button>
+
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="locationSaving"
+              @click="saveLocation"
+            >
+              {{
+                locationSaving ? "Menyimpan..." : locationEditMode ? "Simpan Perubahan" : "Simpan"
+              }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -487,7 +914,26 @@ onMounted(() => {
   font-family: "Segoe UI", Arial, sans-serif;
   color: var(--text-primary);
 }
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
 
+.btn-secondary {
+  padding: 11px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.25s;
+}
+
+.btn-secondary:hover {
+  background: #f5f5f5;
+}
 .password-hint {
   display: block;
   margin-top: 6px;
@@ -935,12 +1381,18 @@ td {
 .modal-overlay {
   position: fixed;
   inset: 0;
+
   background: rgba(31, 36, 84, 0.4);
   backdrop-filter: blur(4px);
+
   display: flex;
   align-items: center;
   justify-content: center;
+
   z-index: 100;
+
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .modal {
@@ -980,6 +1432,29 @@ td {
 
 .modal-body {
   padding: 28px;
+}
+
+.modal-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  background: #fff1f1;
+  border-left: 4px solid var(--danger);
+  border-radius: 8px;
+  color: var(--danger);
+}
+
+.modal-error span {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.modal-error p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .form-group {
@@ -1051,5 +1526,614 @@ td {
 
 .btn-cancel:hover {
   background: var(--background);
+}
+/* =========================
+   MODAL KELOLA LOKASI
+========================= */
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.location-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  transition: 0.2s ease;
+}
+
+.location-item:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.location-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.location-status {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-active {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.status-inactive {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+/* =========================
+   FORM TAMBAH LOKASI
+========================= */
+
+.location-form {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.location-form h4 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2454;
+}
+
+.location-form .form-group {
+  margin-bottom: 16px;
+}
+
+.location-form .form-group label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.location-form .form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  transition: 0.2s ease;
+}
+
+.location-form .form-group input:focus {
+  border-color: #1f2454;
+  box-shadow: 0 0 0 3px rgba(31, 36, 84, 0.08);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* =========================
+   BUTTON
+========================= */
+
+.location-form .btn-primary {
+  border: none;
+  border-radius: 8px;
+  padding: 9px 16px;
+  background: #1f2454;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.location-form .btn-primary:hover {
+  background: #171b42;
+}
+
+.location-form .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.location-form .btn-secondary {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 9px 16px;
+  background: #fff;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.location-form .btn-secondary:hover {
+  background: #f3f4f6;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 600px) {
+  .modal-header-actions {
+    gap: 6px;
+  }
+
+  .modal-header-actions .btn-primary {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .location-item {
+    padding: 12px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .form-actions button {
+    width: 100%;
+  }
+}
+.modal-body {
+  background: #ffffff;
+} /* =========================
+   LOCATION MODAL FIX
+========================= */
+
+.location-modal {
+  background-color: #ffffff !important;
+  opacity: 1 !important;
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  overflow: hidden;
+}
+
+.location-modal .modal-header {
+  background-color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.location-modal .modal-body {
+  background-color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.location-modal .location-list {
+  background-color: #ffffff;
+}
+
+.location-modal .location-item {
+  background-color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.location-modal .location-form {
+  margin: 0;
+  border-top: 1px solid #e5e7eb;
+  border-radius: 0;
+  background-color: #f8fafc !important;
+}
+/* ================================
+   MODAL KELOLA LOKASI
+================================ */
+.location-modal {
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  max-height: 85vh;
+
+  display: flex;
+  flex-direction: column;
+
+  background: #ffffff !important;
+  border-radius: 16px;
+
+  overflow: hidden;
+
+  box-shadow: 0 20px 50px rgba(31, 36, 84, 0.18);
+}
+
+/* Header */
+
+.location-modal .modal-header {
+  flex-shrink: 0;
+
+  padding: 20px 24px;
+  background: #ffffff !important;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.location-modal .modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2454;
+}
+
+/* Tombol header */
+
+.location-modal .modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.location-add-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 38px;
+  padding: 9px 14px;
+
+  border: none;
+  border-radius: 8px;
+
+  background: #1f2454 !important;
+  color: #ffffff !important;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.location-add-btn:hover {
+  background: #171b42 !important;
+}
+
+/* Tombol close */
+
+.location-modal .btn-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 36px;
+  height: 36px;
+
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+
+  background: #f3f4f6;
+  color: #374151;
+
+  font-size: 22px;
+  line-height: 1;
+
+  cursor: pointer;
+}
+
+.location-modal .btn-close:hover {
+  background: #e5e7eb;
+}
+
+/* Body */
+
+.location-modal .modal-body {
+  flex: 1;
+  min-height: 0;
+
+  padding: 24px;
+
+  background: #ffffff !important;
+  font-family: inherit;
+
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* List lokasi */
+
+.location-modal .location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.location-modal .location-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 14px 16px;
+
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+
+  transition: all 0.2s ease;
+}
+
+.location-modal .location-item:hover {
+  border-color: #c7cad8;
+  box-shadow: 0 3px 10px rgba(31, 36, 84, 0.06);
+}
+
+.location-modal .location-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.location-modal .location-status {
+  display: inline-block;
+
+  margin-top: 5px;
+  padding: 4px 9px;
+
+  border-radius: 999px;
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.location-modal .status-active {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.location-modal .status-inactive {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+/* Form tambah lokasi */
+
+.location-modal .location-form {
+  margin-top: 20px;
+  padding: 18px;
+
+  background: #f8f9fc !important;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.location-modal .location-form h4 {
+  margin: 0 0 16px;
+
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2454;
+}
+
+.location-modal .location-form label {
+  display: block;
+
+  margin-bottom: 7px;
+
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.location-modal .location-form input {
+  width: 100%;
+  box-sizing: border-box;
+
+  padding: 10px 12px;
+
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+
+  background: #ffffff;
+  color: #1f2937;
+
+  font-family: inherit;
+  font-size: 13px;
+
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.location-modal .location-form input:focus {
+  border-color: #1f2454;
+  box-shadow: 0 0 0 3px rgba(31, 36, 84, 0.08);
+}
+
+.location-modal .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  margin-top: 16px;
+}
+
+.location-modal .form-actions .btn-secondary,
+.location-modal .form-actions .btn-primary {
+  min-height: 36px;
+
+  padding: 8px 14px;
+
+  border-radius: 8px;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Responsive */
+
+@media (max-width: 600px) {
+  .location-modal {
+    width: calc(100vw - 30px);
+  }
+
+  .location-modal .modal-header {
+    padding: 18px;
+  }
+
+  .location-modal .modal-body {
+    padding: 18px;
+  }
+
+  .location-modal .modal-header-actions {
+    gap: 6px;
+  }
+
+  .location-add-btn {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}
+.location-info {
+  min-width: 0;
+}
+
+.location-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.location-edit-btn,
+.location-status-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 34px;
+  padding: 7px 11px;
+
+  border-radius: 7px;
+
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.location-edit-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1f2454;
+}
+
+.location-edit-btn:hover {
+  background: #f3f4f6;
+}
+
+.location-status-btn {
+  border: none;
+}
+
+.location-status-btn.deactivate {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.location-status-btn.deactivate:hover {
+  background: #ffedd5;
+}
+
+.location-status-btn.activate {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.location-status-btn.activate:hover {
+  background: #bbf7d0;
+}
+
+.location-status-select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+
+  height: 40px;
+  padding: 0 36px 0 12px;
+
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+
+  background-color: #ffffff;
+  color: #1f2937;
+
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 40px;
+
+  outline: none;
+  cursor: pointer;
+
+  appearance: auto;
+}
+
+.location-status-select:focus {
+  border-color: #1f2454;
+  box-shadow: 0 0 0 3px rgba(31, 36, 84, 0.08);
+}
+.location-modal .location-form .form-group {
+  width: 100%;
+  min-width: 0;
+}
+
+.location-modal .location-form select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 600px) {
+  .location-item {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .location-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .location-edit-btn,
+  .location-status-btn {
+    white-space: nowrap;
+  }
+}
+.location-modal .location-form {
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 }
 </style>

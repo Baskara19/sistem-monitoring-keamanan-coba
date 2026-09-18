@@ -31,7 +31,7 @@ public function summary(Request $request)
             'remaining'     => 0,
             'skip'          => 0,
             'anomaly'       => 0,
-            'satpam_id'     => null,
+            'nipkwt'        => $request->user()->nipkwt,
             'current_shift' => null,
         ]);
     }
@@ -129,57 +129,128 @@ public function summary(Request $request)
         'remaining'     => $remaining,
         'skip'          => $skip,
         'anomaly'       => $anomaly,
-        'satpam_id'     => $satpam->employee_code,
+        'nipkwt'        => $request->user()->nipkwt,
         'current_shift' => $this->currentShift($satpam),
     ]);
 }
 
     /**
+     * Hitung jendela waktu [mulai, selesai] sebuah shift, dengan anchor hari
+     * tertentu. Shift yang lintas tengah malam (mis. Malam 22:00-06:00)
+     * otomatis digeser +1 hari untuk jam selesainya. Return null kalau
+     * $anchor di luar rentang tanggal jadwalnya (start_date/end_date).
+     */
+    private function shiftWindowOn(ScheduleDetail $detail, \Carbon\Carbon $anchor): ?array
+    {
+        $schedule = $detail->schedule;
+
+        if (! $schedule) {
+            return null;
+        }
+
+        if ($anchor->lt(\Carbon\Carbon::parse($schedule->start_date)) || $anchor->gt(\Carbon\Carbon::parse($schedule->end_date))) {
+            return null;
+        }
+
+        $start = \Carbon\Carbon::parse($anchor->toDateString() . ' ' . $detail->shift_start);
+        $end   = \Carbon\Carbon::parse($anchor->toDateString() . ' ' . $detail->shift_end);
+
+        if ($end->lessThanOrEqualTo($start)) {
+            $end->addDay();
+        }
+
+        return [$start, $end];
+    }
+
+    /**
      * Cari jadwal (schedule_details) satpam yang jam-nya sedang berlangsung
      * saat ini (bukan cuma aktif hari ini, tapi benar-benar di antara
-     * shift_start dan shift_end sekarang).
+     * shift_start dan shift_end sekarang). Anchor dicoba hari ini DAN
+     * kemarin, supaya shift Malam yang mulai kemarin dan masih berlangsung
+     * lewat tengah malam tetap kebaca.
      */
     private function currentShift(Satpam $satpam): ?array
     {
-        $details = ScheduleDetail::with('patrolPoint')
+        $details = ScheduleDetail::with('patrolPoint', 'schedule')
             ->where('satpam_id', $satpam->id)
             ->whereHas('schedule', function ($query) {
                 $query->where('status', 'aktif')
                     ->whereDate('start_date', '<=', today())
-                    ->whereDate('end_date', '>=', today());
+                    ->whereDate('end_date', '>=', today()->copy()->subDay());
             })
             ->get();
 
-        $active = $details->first(function (ScheduleDetail $detail) {
-            $start = \Carbon\Carbon::parse(today()->toDateString() . ' ' . $detail->shift_start);
-            $end   = \Carbon\Carbon::parse(today()->toDateString() . ' ' . $detail->shift_end);
+        foreach ($details as $detail) {
+            foreach ([today(), today()->copy()->subDay()] as $anchor) {
+                $window = $this->shiftWindowOn($detail, $anchor);
 
-            return now()->between($start, $end);
-        });
-
-        if (! $active) {
-            return null;
+                if ($window && now()->between($window[0], $window[1])) {
+                    return $this->formatShiftInfo($detail);
+                }
+            }
         }
 
-        return $this->formatShiftInfo($active);
+        return null;
     }
 
     /**
      * Cari jadwal (schedule_details) satpam untuk titik patroli tertentu
-     * yang aktif hari ini (tidak harus persis jam sekarang — dipakai untuk
-     * mengetahui shift mana yang berlaku saat scan/skip terjadi).
+     * yang paling relevan dengan waktu sekarang. Dipakai saat scan/skip
+     * terjadi untuk tahu shift mana yang berlaku. Return array
+     * [ScheduleDetail, Carbon $shiftStart, Carbon $shiftEnd] — start/end
+     * bisa null kalau shift-nya belum/tidak bisa ditentukan jendela waktunya
+     * (fallback, misal scan jauh lebih awal dari jadwal).
      */
-    private function findScheduleDetail(int $satpamId, int $patrolPointId): ?ScheduleDetail
+    private function resolveScheduleDetail(int $satpamId, int $patrolPointId): ?array
     {
-        return ScheduleDetail::with(['patrolPoint', 'schedule'])
+        $candidates = ScheduleDetail::with(['patrolPoint', 'schedule'])
             ->where('satpam_id', $satpamId)
             ->where('patrol_point_id', $patrolPointId)
             ->whereHas('schedule', function ($query) {
                 $query->where('status', 'aktif')
                     ->whereDate('start_date', '<=', today())
-                    ->whereDate('end_date', '>=', today());
+                    ->whereDate('end_date', '>=', today()->copy()->subDay());
             })
-            ->first();
+            ->get();
+
+        $fallback = null;
+
+        foreach ($candidates as $detail) {
+            foreach ([today(), today()->copy()->subDay()] as $anchor) {
+                $window = $this->shiftWindowOn($detail, $anchor);
+
+                if (! $window) {
+                    continue;
+                }
+
+                [$start, $end] = $window;
+
+                if (now()->between($start, $end)) {
+                    return [$detail, $start, $end];
+                }
+
+                // Simpan kandidat yang shift-nya sudah lewat, ambil yang
+                // paling baru berakhir — dipakai buat kasus scan telat.
+                if ($end->lessThan(now()) && (! $fallback || $end->greaterThan($fallback[2]))) {
+                    $fallback = [$detail, $start, $end];
+                }
+            }
+        }
+
+        if ($fallback) {
+            return $fallback;
+        }
+
+        return $candidates->isNotEmpty() ? [$candidates->first(), null, null] : null;
+    }
+
+    /**
+     * Versi ringkas dari resolveScheduleDetail() — dipakai di tempat yang
+     * cuma butuh ScheduleDetail-nya aja (bukan jendela waktunya).
+     */
+    private function findScheduleDetail(int $satpamId, int $patrolPointId): ?ScheduleDetail
+    {
+        return $this->resolveScheduleDetail($satpamId, $patrolPointId)[0] ?? null;
     }
 
     private function formatShiftInfo(?ScheduleDetail $detail): ?array
@@ -439,13 +510,15 @@ public function history(Request $request)
 
         // Titik yang di-scan harus bagian dari jadwal/rute satpam hari ini.
         // Kalau bukan, tolak dari awal — jangan pernah masuk ke database.
-        $scheduleDetail = $this->findScheduleDetail($satpam->id, $patrolPoint->id);
+        $resolved = $this->resolveScheduleDetail($satpam->id, $patrolPoint->id);
 
-        if (! $scheduleDetail) {
+        if (! $resolved) {
             return response()->json([
                 'message' => 'Titik ini bukan bagian dari jadwal patroli Anda hari ini.',
             ], 422);
         }
+
+        [$scheduleDetail, , $shiftEndAt] = $resolved;
 
         // Titik yang statusnya sudah final (berhasil/terlambat/skip) hari ini
         // tidak boleh discan lagi. Khusus anomali dianggap belum selesai,
@@ -476,15 +549,9 @@ public function history(Request $request)
         $isOutOfRange = $distance !== null && $distance > $patrolPoint->radius_meters;
 
         // Cek apakah scan dilakukan setelah shift-nya berakhir (terlambat).
-        $isLate = false;
-
-        if ($scheduleDetail) {
-            $shiftEnd = \Carbon\Carbon::parse(today()->toDateString() . ' ' . $scheduleDetail->shift_end);
-
-            if (now()->greaterThan($shiftEnd)) {
-                $isLate = true;
-            }
-        }
+        // $shiftEndAt sudah memperhitungkan shift yang lintas tengah malam
+        // (mis. Malam 22:00-06:00) lewat resolveScheduleDetail().
+        $isLate = $shiftEndAt !== null && now()->greaterThan($shiftEndAt);
 
         if ($isOutOfRange) {
             $scanStatus = 'anomali';

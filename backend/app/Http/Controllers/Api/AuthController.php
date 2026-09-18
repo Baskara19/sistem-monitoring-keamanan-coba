@@ -14,15 +14,15 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email'    => 'required|email',
+            'nipkwt'   => 'required|string',
             'password' => 'required',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where('nipkwt', $request->nipkwt)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
-                'message' => 'Email atau password salah.'
+                'message' => 'NIPKWT atau password salah.'
             ], 401);
         }
 
@@ -41,8 +41,10 @@ class AuthController extends Controller
                 'id'       => $user->id,
                 'name'     => $user->name,
                 'username' => $user->username,
+                'nipkwt'   => $user->nipkwt,
                 'email'    => $user->email,
                 'role'     => $user->role,
+                'tim'      => $user->tim,
                 'location' => $user->location,
             ]
         ]);
@@ -66,8 +68,10 @@ class AuthController extends Controller
                 'id'       => $request->user()->id,
                 'name'     => $request->user()->name,
                 'username' => $request->user()->username,
+                'nipkwt'   => $request->user()->nipkwt,
                 'email'    => $request->user()->email,
                 'role'     => $request->user()->role,
+                'tim'      => $request->user()->tim,
                 'location' => $request->user()->location,
             ]
         ]);

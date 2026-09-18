@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\PatrolPointController;
 use App\Http\Controllers\Api\MonitoringController;
 use App\Http\Controllers\Api\SatpamController;
 use App\Http\Controllers\Api\SupervisorController;
+use App\Http\Controllers\Api\LocationController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -21,12 +22,21 @@ Route::middleware('auth:sanctum')->group(function () {
     // Admin routes
     Route::prefix('admin')->group(function () {
         Route::get('/dashboard', [AdminController::class, 'dashboard']);
+        // Master lokasi
+        Route::get('/locations', [LocationController::class, 'index']);
+        Route::post('/locations', [LocationController::class, 'store']);
+        Route::put('/locations/{id}', [LocationController::class, 'update']);
+        Route::delete('/locations/{id}', [LocationController::class, 'destroy']);
+
         Route::get('/patrol-points', [PatrolPointController::class, 'index']);
         // User management
         Route::get('/users', [UserController::class, 'index']);
+        Route::get('/users/archived', [AdminController::class, 'archivedUsers']);
         Route::post('/users', [UserController::class, 'store']);
         Route::delete('/users/{id}', [UserController::class, 'destroy']);
+        Route::put('/users/{id}/archive', [UserController::class, 'archive']);
         Route::put('/users/{id}', [UserController::class, 'update']);
+        Route::put('/users/{id}/restore', [UserController::class, 'restore']);
         // Titik patroli
         Route::get('/patrol-points', [AdminController::class, 'patrolPoints']);
         Route::post('/patrol-points', [AdminController::class, 'storePatrolPoint']);

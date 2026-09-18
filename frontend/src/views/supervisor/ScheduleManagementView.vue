@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from "vue";
 import axios from "axios";
 import { useRouter } from "vue-router";
+import Swal from "sweetalert2";
 
 const router = useRouter();
 
@@ -305,7 +306,18 @@ const submitForm = async () => {
 };
 
 const deleteSchedule = async (row) => {
-  if (!confirm(`Hapus jadwal ${row.satpam_name} di ${row.area}?`)) return;
+  const result = await Swal.fire({
+    icon: "warning",
+    title: "Hapus Jadwal Ini?",
+    text: `Jadwal ${row.satpam_name} di ${row.area} akan dihapus dan tidak dapat dikembalikan.`,
+    showCancelButton: true,
+    confirmButtonText: "Ya, Hapus",
+    cancelButtonText: "Batal",
+    reverseButtons: true,
+    focusCancel: true,
+  });
+
+  if (!result.isConfirmed) return;
 
   try {
     await axios.delete(
@@ -314,8 +326,22 @@ const deleteSchedule = async (row) => {
     );
 
     await fetchSchedules();
+
+    await Swal.fire({
+      icon: "success",
+      title: "Berhasil!",
+      text: "Jadwal berhasil dihapus.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#1f2454",
+    });
   } catch (err) {
-    alert(err.response?.data?.message || "Gagal menghapus jadwal.");
+    await Swal.fire({
+      icon: "error",
+      title: "Gagal",
+      text: err.response?.data?.message || "Gagal menghapus jadwal.",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#d63031",
+    });
   }
 };
 
@@ -326,11 +352,30 @@ const importing = ref(false);
 const downloadingTemplate = ref(false);
 const importError = ref("");
 const importResult = ref(null);
+const importBulan = ref(new Date().getMonth() + 1);
+const importTahun = ref(new Date().getFullYear());
+
+const bulanOptions = [
+  { value: 1, label: "Januari" },
+  { value: 2, label: "Februari" },
+  { value: 3, label: "Maret" },
+  { value: 4, label: "April" },
+  { value: 5, label: "Mei" },
+  { value: 6, label: "Juni" },
+  { value: 7, label: "Juli" },
+  { value: 8, label: "Agustus" },
+  { value: 9, label: "September" },
+  { value: 10, label: "Oktober" },
+  { value: 11, label: "November" },
+  { value: 12, label: "Desember" },
+];
 
 const importJadwal = () => {
   importFile.value = null;
   importError.value = "";
   importResult.value = null;
+  importBulan.value = new Date().getMonth() + 1;
+  importTahun.value = new Date().getFullYear();
   showImportModal.value = true;
 };
 
@@ -387,6 +432,8 @@ const submitImport = async () => {
   try {
     const payload = new FormData();
     payload.append("file", importFile.value);
+    payload.append("bulan", importBulan.value);
+    payload.append("tahun", importTahun.value);
 
     const response = await axios.post(
       "https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules-import",
@@ -698,8 +745,9 @@ onMounted(() => {
 
         <div class="modal-body">
           <p class="field-hint" style="margin-bottom: 16px">
-            Tiap baris di file = 1 penugasan (satpam + rute). Titik-titik patroli otomatis
-            diambil dari rute yang dipilih. Pastikan satpam dan rute-nya sudah terdaftar dulu.
+            Tiap baris di file = 1 orang (dicocokkan lewat NIPKWT), dengan rute patroli yang
+            berlaku sebulan penuh. Kolom tanggal 1-31 diisi kode shift per hari: P (Pagi),
+            S (Siang), M (Malam), atau L/kosong (Libur). Pilih bulan & tahun jadwalnya di bawah.
           </p>
 
           <button class="btn-outline" style="width: 100%; margin-bottom: 18px" :disabled="downloadingTemplate" @click="downloadTemplate">
@@ -707,6 +755,19 @@ onMounted(() => {
           </button>
 
           <div v-if="importError" class="modal-error">{{ importError }}</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Bulan</label>
+              <select v-model.number="importBulan">
+                <option v-for="b in bulanOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Tahun</label>
+              <input v-model.number="importTahun" type="number" min="2020" max="2100" />
+            </div>
+          </div>
 
           <div class="form-group">
             <label>File Excel / CSV</label>
@@ -721,12 +782,12 @@ onMounted(() => {
           <!-- HASIL IMPORT -->
           <div v-if="importResult" class="import-result">
             <div class="import-summary">
-              <span class="import-ok">{{ importResult.imported }} berhasil</span>
-              <span v-if="importResult.failed" class="import-fail">{{ importResult.failed }} gagal</span>
+              <span class="import-ok">{{ importResult.imported }} jadwal harian berhasil</span>
+              <span v-if="importResult.failed" class="import-fail">{{ importResult.failed }} bermasalah</span>
             </div>
 
             <div v-if="importResult.errors?.length" class="import-errors">
-              <div v-for="err in importResult.errors" :key="err.row" class="import-error-row">
+              <div v-for="(err, index) in importResult.errors" :key="index" class="import-error-row">
                 Baris {{ err.row }}: {{ err.message }}
               </div>
             </div>

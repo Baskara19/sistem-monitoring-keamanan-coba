@@ -180,10 +180,10 @@
                   </div>
 
                   <div class="info-row">
-                    <span>Badge Number</span>
+                    <span>NIPKWT</span>
 
                     <strong>
-                      {{ report.badge_number || "-" }}
+                      {{ report.nipkwt || "-" }}
                     </strong>
                   </div>
 
@@ -498,6 +498,8 @@ import axios from "axios";
 
 import { useRouter, useRoute } from "vue-router";
 
+import Swal from "sweetalert2";
+
 // =====================================================
 // ROUTER
 // =====================================================
@@ -656,7 +658,13 @@ const reviewReport = async () => {
     if (err.response?.status === 401) {
       error.value = "Sesi login sudah berakhir. Silakan login kembali.";
     } else {
-      alert(err.response?.data?.message || "Gagal menandai laporan sebagai sudah ditinjau.");
+      await Swal.fire({
+        icon: "error",
+        title: "Gagal",
+        text: err.response?.data?.message || "Gagal menandai laporan sebagai sudah ditinjau.",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#d63031",
+      });
     }
   } finally {
     reviewing.value = false;
@@ -695,7 +703,13 @@ const reviewSkip = async () => {
     if (err.response?.status === 401) {
       error.value = "Sesi login sudah berakhir. Silakan login kembali.";
     } else {
-      alert(err.response?.data?.message || "Gagal menandai Skip sebagai sudah ditinjau.");
+      await Swal.fire({
+        icon: "error",
+        title: "Gagal",
+        text: err.response?.data?.message || "Gagal menandai Skip sebagai sudah ditinjau.",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#d63031",
+      });
     }
   } finally {
     reviewing.value = false;

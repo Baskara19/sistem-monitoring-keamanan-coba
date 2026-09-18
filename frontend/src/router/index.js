@@ -5,6 +5,7 @@ import LoginView from "../views/LoginView.vue";
 // Admin
 import AdminDashboardView from "../views/admin/AdminDashboardView.vue";
 import UsersView from "../views/admin/UsersView.vue";
+import ArchivedUsersView from "@/views/admin/ArchivedUsersView.vue";
 import PatrolPointsView from "../views/admin/PatrolPointsView.vue";
 import AddPatrolPointView from "../views/admin/AddPatrolPointView.vue";
 import EditPatrolPointView from "../views/admin/EditPatrolPointView.vue";
@@ -113,6 +114,11 @@ const router = createRouter({
         requiresAuth: true,
         role: "admin",
       },
+    },
+     {
+      path: "/admin/users/archive",
+      name: "ArchivedUsers",
+      component: ArchivedUsersView,
     },
 
     // =========================
@@ -250,11 +256,17 @@ router.beforeEach((to) => {
       };
     }
 
-    // Role tidak sesuai
-    if (to.meta.role && user.role !== to.meta.role) {
-      return {
-        name: "login",
-      };
+    // Role tidak sesuai (katim ikut aturan role "satpam" — dashboard sama)
+    if (to.meta.role) {
+      const isAllowed =
+        user.role === to.meta.role ||
+        (to.meta.role === "satpam" && user.role === "katim");
+
+      if (!isAllowed) {
+        return {
+          name: "login",
+        };
+      }
     }
   }
 
@@ -270,7 +282,7 @@ router.beforeEach((to) => {
       };
     }
 
-    if (user.role === "satpam") {
+    if (user.role === "satpam" || user.role === "katim") {
       return {
         name: "satpam-dashboard",
       };

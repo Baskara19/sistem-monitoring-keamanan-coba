@@ -51,26 +51,49 @@
       <!-- Jenis Patroli -->
       <div class="form-group">
         <label>Jenis Patroli</label>
-        <div class="select-wrapper">
-          <select v-model="form.report_type">
-            <option value="rutin">Patroli Rutin</option>
-            <option value="insiden">Insiden</option>
-            <option value="temuan">Temuan</option>
-          </select>
+
+        <div class="option-grid">
+          <label class="option-card" :class="{ active: form.report_type === 'rutin' }">
+            <input type="radio" value="rutin" v-model="form.report_type" />
+            Patroli Rutin
+          </label>
+
+          <label class="option-card" :class="{ active: form.report_type === 'insiden' }">
+            <input type="radio" value="insiden" v-model="form.report_type" />
+            Insiden
+          </label>
+
+          <label class="option-card" :class="{ active: form.report_type === 'temuan' }">
+            <input type="radio" value="temuan" v-model="form.report_type" />
+            Temuan
+          </label>
         </div>
       </div>
 
       <!-- Kondisi -->
       <div class="form-group">
         <label>Kondisi</label>
-        <div class="select-wrapper">
-          <select v-model="form.kondisi">
-            <option value="" disabled>Pilih Kondisi</option>
-            <option value="aman">Aman</option>
-            <option value="mencurigakan">Mencurigakan</option>
-            <option value="kerusakan">Ada Kerusakan</option>
-            <option value="darurat">Darurat</option>
-          </select>
+
+        <div class="option-list">
+          <label class="option-card" :class="{ active: form.kondisi === 'aman' }">
+            <input type="radio" value="aman" v-model="form.kondisi" />
+            ✅ Aman
+          </label>
+
+          <label class="option-card" :class="{ active: form.kondisi === 'mencurigakan' }">
+            <input type="radio" value="mencurigakan" v-model="form.kondisi" />
+            ⚠️ Mencurigakan
+          </label>
+
+          <label class="option-card" :class="{ active: form.kondisi === 'kerusakan' }">
+            <input type="radio" value="kerusakan" v-model="form.kondisi" />
+            🔧 Ada Kerusakan
+          </label>
+
+          <label class="option-card" :class="{ active: form.kondisi === 'darurat' }">
+            <input type="radio" value="darurat" v-model="form.kondisi" />
+            🚨 Darurat
+          </label>
         </div>
       </div>
 
@@ -218,16 +241,12 @@ const submitReport = async () => {
       payload.append("photo", photoFile.value);
     }
 
-    await axios.post(
-      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/reports",
-      payload,
-      {
-        headers: {
-          ...getAuthHeaders().headers,
-          "Content-Type": "multipart/form-data",
-        },
-      }
-    );
+    await axios.post("https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/reports", payload, {
+      headers: {
+        ...getAuthHeaders().headers,
+        "Content-Type": "multipart/form-data",
+      },
+    });
 
     await Swal.fire({
       icon: "success",
@@ -239,13 +258,10 @@ const submitReport = async () => {
     });
 
     router.push("/satpam/dashboard");
-
   } catch (err) {
     console.error("Gagal menyimpan laporan:", err);
 
-    const message =
-      err.response?.data?.message ||
-      "Terjadi kesalahan saat menyimpan laporan.";
+    const message = err.response?.data?.message || "Terjadi kesalahan saat menyimpan laporan.";
 
     await Swal.fire({
       icon: "error",
@@ -254,7 +270,6 @@ const submitReport = async () => {
       confirmButtonText: "Coba Lagi",
       confirmButtonColor: "#d63031",
     });
-
   } finally {
     submitting.value = false;
   }
@@ -524,6 +539,35 @@ const goBack = () => {
 .btn-save:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.option-grid,
+.option-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.option-card {
+  flex: 1;
+  min-width: 120px;
+  padding: 12px;
+  border: 2px solid #e2e4ea;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  text-align: center;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.option-card input {
+  display: none;
+}
+
+.option-card.active {
+  border-color: #1f2454;
+  background: #eef2ff;
+  color: #1f2454;
 }
 
 @media (min-width: 700px) {

@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-const email = ref('')
+const nipkwt = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
@@ -17,9 +17,9 @@ const login = async () => {
 
   try {
     const response = await axios.post(
-      import.meta.env.VITE_API_URL + '/login',
+      'https://sistem-monitoring-keamanan-be.onrender.com/api/login',
       {
-        email: email.value,
+        nipkwt: nipkwt.value,
         password: password.value
       }
     )
@@ -38,14 +38,14 @@ const login = async () => {
       router.push('/admin/dashboard')
     } else if (role === 'supervisor') {
       router.push('/supervisor/dashboard')
-    } else if (role === 'satpam') {
+    } else if (role === 'satpam' || role === 'katim') {
       router.push('/satpam/dashboard')
     }
 
   } catch (err) {
     error.value =
       err.response?.data?.message ||
-      'Email atau password tidak valid.'
+      'NIPKWT atau password tidak valid.'
   } finally {
     loading.value = false
   }
@@ -165,10 +165,10 @@ const login = async () => {
           <!-- FORM -->
           <form @submit.prevent="login">
 
-            <!-- EMAIL -->
+            <!-- NIPKWT -->
             <div class="form-group">
 
-              <label>Email</label>
+              <label>NIPKWT</label>
 
               <div class="input-wrapper">
 
@@ -177,9 +177,9 @@ const login = async () => {
                 </span>
 
                 <input
-                  v-model="email"
-                  type="email"
-                  placeholder="Masukkan email"
+                  v-model="nipkwt"
+                  type="text"
+                  placeholder="Masukkan NIPKWT"
                   required
                 />
 

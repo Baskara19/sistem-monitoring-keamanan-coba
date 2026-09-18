@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 
@@ -30,7 +30,7 @@ const fetchActivities = async () => {
   error.value = ''
   try {
     const response = await axios.get(
-      import.meta.env.VITE_API_URL + '/admin/activities',
+      'https://sistem-monitoring-keamanan-be.onrender.com/api/admin/activities',
       getAuthHeaders()
     )
     activities.value = response.data.activities ?? []
@@ -53,6 +53,51 @@ const filteredActivities = computed(() => {
       return matchSearch && matchStatus && matchDate
     })
     .sort((a, b) => new Date(b.scan_time) - new Date(a.scan_time))
+})
+
+// =====================================================
+// PAGINATION
+// =====================================================
+const currentPage = ref(1)
+const perPage = 10
+
+const totalPages = computed(() => {
+  return Math.ceil(filteredActivities.value.length / perPage) || 1
+})
+
+const paginatedActivities = computed(() => {
+  const start = (currentPage.value - 1) * perPage
+  const end = start + perPage
+  return filteredActivities.value.slice(start, end)
+})
+
+const visiblePages = computed(() => {
+  const pages = []
+  const maxVisible = 5
+
+  let start = Math.max(1, currentPage.value - 2)
+  let end = Math.min(totalPages.value, start + maxVisible - 1)
+
+  if (end - start + 1 < maxVisible) {
+    start = Math.max(1, end - maxVisible + 1)
+  }
+
+  for (let i = start; i <= end; i++) {
+    pages.push(i)
+  }
+
+  return pages
+})
+
+const changePage = (page) => {
+  if (page < 1 || page > totalPages.value) return
+  currentPage.value = page
+  document.querySelector('.table-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// Balik ke halaman pertama tiap kali filter/pencarian berubah
+watch([search, filterStatus, filterDate], () => {
+  currentPage.value = 1
 })
 
 const summary = computed(() => ({
@@ -255,7 +300,7 @@ onMounted(() => {
                   Tidak ada aktivitas yang ditemukan.
                 </td>
               </tr>
-              <tr v-for="activity in filteredActivities" :key="activity.id">
+              <tr v-for="activity in paginatedActivities" :key="activity.id">
                 <td class="text-secondary">{{ formatDateTime(activity.scan_time) }}</td>
                 <td>
                   <div class="user-cell">
@@ -273,6 +318,35 @@ onMounted(() => {
               </tr>
             </tbody>
           </table>
+
+          <!-- PAGINATION -->
+          <div v-if="totalPages > 1" class="pagination">
+            <button
+              class="pagination-btn"
+              :disabled="currentPage === 1"
+              @click="changePage(currentPage - 1)"
+            >
+              ‹
+            </button>
+
+            <button
+              v-for="page in visiblePages"
+              :key="page"
+              class="pagination-btn"
+              :class="{ active: currentPage === page }"
+              @click="changePage(page)"
+            >
+              {{ page }}
+            </button>
+
+            <button
+              class="pagination-btn"
+              :disabled="currentPage === totalPages"
+              @click="changePage(currentPage + 1)"
+            >
+              ›
+            </button>
+          </div>
         </div>
 
       </div>
@@ -578,6 +652,51 @@ td { padding: 16px 20px; font-size: 13px; color: var(--text-primary); }
 .status-late { background: rgba(232,117,0,0.12); color: var(--warning); }
 .status-missed { background: rgba(122,92,240,0.12); color: #7a5cf0; }
 .status-neutral { background: #f1f2f6; color: var(--text-secondary); }
+
+/* PAGINATION */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px 24px;
+  border-top: 1px solid var(--border);
+  background: #fafbfc;
+}
+
+.pagination-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #fff9f3;
+}
+
+.pagination-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 @media (max-width: 1250px) {
   .stats-grid { grid-template-columns: repeat(3, 1fr); }

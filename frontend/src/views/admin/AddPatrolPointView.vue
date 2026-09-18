@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
 import Swal from "sweetalert2";
+import PatrolLocationPicker from "../../components/PatrolLocationPicker.vue";
 
 const router = useRouter();
 
@@ -18,6 +19,7 @@ const form = ref({
 
 const error = ref("");
 const loading = ref(false);
+const existingPoints = ref([]);
 const displayName = computed(() => {
   const storedUser = localStorage.getItem("user");
 
@@ -35,6 +37,18 @@ const displayName = computed(() => {
 
 const goBack = () => {
   router.push("/admin/patrol-points");
+};
+
+const loadExistingPoints = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points", {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    existingPoints.value = response.data.patrol_points ?? [];
+  } catch (err) {
+    console.error("Gagal memuat titik patroli pada peta", err);
+  }
 };
 
 const submitForm = async () => {
@@ -60,11 +74,11 @@ const submitForm = async () => {
     return;
   }
   
-  if (!form.value.longitude) {
+  if (!form.value.latitude || !form.value.longitude) {
     Swal.fire({
       icon: "warning",
       title: "Data Belum Lengkap",
-      text: "Longitude wajib diisi.",
+      text: "Pilih lokasi titik patroli pada peta terlebih dahulu.",
       confirmButtonText: "OK",
     });
     return;
@@ -121,6 +135,8 @@ const submitForm = async () => {
     }
   }
 };
+
+onMounted(loadExistingPoints);
 </script>
 
 <template>
@@ -247,19 +263,14 @@ const submitForm = async () => {
               ></textarea>
             </div>
 
-            <!-- KOORDINAT -->
-            <div class="form-row">
-              <div class="form-group">
-                <label> Latitude </label>
-
-                <input v-model="form.latitude" type="number" step="any" placeholder="-7.7956" />
-              </div>
-
-              <div class="form-group">
-                <label> Longitude </label>
-
-                <input v-model="form.longitude" type="number" step="any" placeholder="110.3695" />
-              </div>
+            <!-- LOKASI PADA PETA -->
+            <div class="form-group">
+              <label>Pilih Lokasi pada Peta <span>*</span></label>
+              <PatrolLocationPicker
+                v-model:latitude="form.latitude"
+                v-model:longitude="form.longitude"
+                :existing-points="existingPoints"
+              />
             </div>
 
             <!-- RADIUS -->

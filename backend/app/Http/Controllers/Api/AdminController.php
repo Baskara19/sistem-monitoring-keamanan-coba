@@ -273,4 +273,14 @@ public function destroyRoute($id)
         'message' => 'Rute patroli berhasil dihapus.',
     ]);
 }
+public function archivedUsers()
+{
+    $users = User::where('status', 'nonaktif')
+        ->orderBy('name')
+        ->get();
+
+    return response()->json([
+        'users' => $users
+    ]);
+}
 }

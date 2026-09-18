@@ -33,8 +33,9 @@ class ScheduleDetail extends Model
     }
 
     /**
-     * Kategori shift (Pagi/Siang/Malam) diturunkan dari jam mulai.
-     * < 10:00 = Pagi, 10:00-12:59 = Siang, >= 13:00 = Malam.
+     * Kategori shift (Pagi/Siang/Malam) diturunkan dari jam mulai, sesuai
+     * skema shift baku: Pagi 06:00-14:00, Siang 14:00-22:00,
+     * Malam 22:00-06:00 (lintas tengah malam).
      */
     public function getShiftLabelAttribute(): string
     {
@@ -44,14 +45,14 @@ class ScheduleDetail extends Model
 
         $hour = (int) substr($this->shift_start, 0, 2);
 
-        if ($hour < 10) {
+        if ($hour >= 22 || $hour < 6) {
+            return 'Malam';
+        }
+
+        if ($hour < 14) {
             return 'Pagi';
         }
 
-        if ($hour < 13) {
-            return 'Siang';
-        }
-
-        return 'Malam';
+        return 'Siang';
     }
 }

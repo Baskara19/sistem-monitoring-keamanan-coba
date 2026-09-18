@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class User extends Authenticatable
 {
@@ -15,10 +16,13 @@ class User extends Authenticatable
         'name',
         'email',
         'username',
+        'nipkwt',
         'password',
         'role',
+        'tim',
         'phone',
         'location',
+        'location_id',
         'status',
     ];
 
@@ -46,4 +50,8 @@ class User extends Authenticatable
     {
         return $this->hasOne(Supervisor::class);
     }
+public function masterLocation(): BelongsTo
+{
+    return $this->belongsTo(Location::class, 'location_id');
+}
 }

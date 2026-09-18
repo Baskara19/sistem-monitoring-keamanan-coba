@@ -1,143 +1,139 @@
-<script setup>
-import { computed, ref } from "vue";
-import { isIos, usePwaInstall } from "@/composables/usePwaInstall";
-
-const DISMISS_KEY = "pwa_install_dismissed_at";
-const DISMISS_DAYS = 7;
-
-const { state, promptInstall } = usePwaInstall();
-
-const wasDismissedRecently = () => {
-  const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
-
-  if (!dismissedAt) {
-    return false;
-  }
-
-  const elapsedDays = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
-
-  return elapsedDays < DISMISS_DAYS;
-};
-
-const dismissed = ref(wasDismissedRecently());
-const showIosHelp = ref(false);
-
-const visible = computed(() => {
-  if (state.isInstalled || dismissed.value) {
-    return false;
-  }
-
-  return state.isInstallable || isIos();
-});
-
-const dismiss = () => {
-  localStorage.setItem(DISMISS_KEY, String(Date.now()));
-  dismissed.value = true;
-  showIosHelp.value = false;
-};
-
-const handleInstallClick = async () => {
-  if (isIos()) {
-    showIosHelp.value = true;
-    return;
-  }
-
-  await promptInstall();
-};
-</script>
-
 <template>
-  <div v-if="visible" class="install-prompt">
-    <div class="install-card">
-      <button class="close-btn" type="button" aria-label="Tutup" @click="dismiss">
-        &times;
-      </button>
-
+  <transition name="slide-up">
+    <div v-if="visible" class="install-banner">
       <div class="install-icon">
-        <img src="/icons/icon-192.png" alt="KAI Security" />
+        <img src="/icons/icon-192.png" alt="Ikon Aplikasi" />
       </div>
 
       <div class="install-text">
-        <h3>Install Aplikasi KAI Security</h3>
-        <p v-if="!showIosHelp">
-          Pasang aplikasi ini di HP Anda supaya lebih cepat diakses saat patroli, tanpa perlu buka browser lagi.
+        <strong>Instal Aplikasi Ini</strong>
+        <p v-if="isIos">
+          Tap tombol Share <span class="ios-share-icon">⎋</span> lalu pilih
+          "Add to Home Screen" biar bisa dibuka seperti aplikasi.
         </p>
         <p v-else>
-          Di Safari: ketuk tombol <strong>Share</strong>
-          <span aria-hidden="true">⤴</span>, lalu pilih
-          <strong>Add to Home Screen</strong>.
+          Biar lebih gampang diakses, instal aplikasi ini di HP kamu seperti
+          aplikasi biasa.
         </p>
       </div>
 
       <div class="install-actions">
-        <button v-if="!showIosHelp" class="btn-secondary" type="button" @click="dismiss">
+        <button v-if="!isIos" type="button" class="btn-install" @click="promptInstall">
+          Instal
+        </button>
+        <button type="button" class="btn-dismiss" @click="dismiss">
           Nanti Saja
-        </button>
-        <button v-if="!showIosHelp" class="btn-primary" type="button" @click="handleInstallClick">
-          Install
-        </button>
-        <button v-else class="btn-primary" type="button" @click="dismiss">
-          Mengerti
         </button>
       </div>
     </div>
-  </div>
+  </transition>
 </template>
 
-<style scoped>
-.install-prompt {
-  position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
-  z-index: 1000;
-  display: flex;
-  justify-content: center;
-}
+<script setup>
+import { onMounted, onBeforeUnmount, ref } from "vue";
 
-.install-card {
-  position: relative;
-  width: 100%;
+const DISMISS_KEY = "pwa_install_dismissed";
+
+const visible = ref(false);
+const isIos = ref(false);
+let deferredPrompt = null;
+
+const isStandaloneMode = () => {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+};
+
+const isSatpam = () => {
+  try {
+    const user = JSON.parse(localStorage.getItem("user") || "null");
+    return user?.role === "satpam";
+  } catch {
+    return false;
+  }
+};
+
+const handleBeforeInstallPrompt = (event) => {
+  event.preventDefault();
+  deferredPrompt = event;
+
+  if (isSatpam() && !localStorage.getItem(DISMISS_KEY) && !isStandaloneMode()) {
+    visible.value = true;
+  }
+};
+
+const handleAppInstalled = () => {
+  visible.value = false;
+  deferredPrompt = null;
+};
+
+const promptInstall = async () => {
+  if (!deferredPrompt) {
+    visible.value = false;
+    return;
+  }
+
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  visible.value = false;
+};
+
+const dismiss = () => {
+  visible.value = false;
+  localStorage.setItem(DISMISS_KEY, "1");
+};
+
+onMounted(() => {
+  if (!isSatpam() || isStandaloneMode() || localStorage.getItem(DISMISS_KEY)) {
+    return;
+  }
+
+  const ua = window.navigator.userAgent;
+  const iosDevice = /iPad|iPhone|iPod/.test(ua);
+  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+
+  if (iosDevice && isSafari) {
+    isIos.value = true;
+    visible.value = true;
+  }
+
+  window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+  window.addEventListener("appinstalled", handleAppInstalled);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+  window.removeEventListener("appinstalled", handleAppInstalled);
+});
+</script>
+
+<style scoped>
+.install-banner {
+  position: fixed;
+  z-index: 50;
+  bottom: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
   max-width: 420px;
   background: #ffffff;
   border-radius: 16px;
-  padding: 18px 18px 16px;
-  box-shadow: 0 12px 32px rgba(31, 36, 84, 0.25);
+  box-shadow: 0 12px 30px rgba(31, 36, 84, 0.25);
+  padding: 14px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 12px;
-  animation: slide-up 0.25s ease-out;
-}
-
-@keyframes slide-up {
-  from {
-    transform: translateY(16px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.close-btn {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  border: none;
-  background: transparent;
-  font-size: 18px;
-  line-height: 1;
-  color: #9a9dab;
-  cursor: pointer;
+  font-family: "Segoe UI", Arial, sans-serif;
 }
 
 .install-icon {
-  width: 48px;
-  height: 48px;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   overflow: hidden;
-  flex-shrink: 0;
 }
 
 .install-icon img {
@@ -146,44 +142,73 @@ const handleInstallClick = async () => {
   display: block;
 }
 
-.install-text h3 {
-  margin: 0 0 4px;
-  font-size: 15px;
+.install-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.install-text strong {
+  display: block;
+  font-size: 13px;
   color: #1f2454;
+  margin-bottom: 2px;
 }
 
 .install-text p {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #6b6e7d;
+  font-size: 11px;
+  color: #6b6f80;
+  line-height: 1.4;
+}
+
+.ios-share-icon {
+  font-weight: 700;
 }
 
 .install-actions {
+  flex-shrink: 0;
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 4px;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.btn-secondary,
-.btn-primary {
+.btn-install {
   border: none;
   border-radius: 8px;
-  padding: 9px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn-secondary {
-  background: #f2f3f6;
-  color: #6b6e7d;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, #e87500, #f08b1a);
+  padding: 7px 14px;
+  background: #e87500;
   color: #ffffff;
-  box-shadow: 0 6px 14px rgba(232, 117, 0, 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-dismiss {
+  border: none;
+  background: transparent;
+  color: #9a9dab;
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.25s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 20px);
+}
+
+@media (min-width: 700px) {
+  .install-banner {
+    max-width: 460px;
+  }
 }
 </style>
