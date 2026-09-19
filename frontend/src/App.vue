@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import InstallAppPrompt from "@/components/InstallAppPrompt.vue";
 
 const route = useRoute();
+const router = useRouter();
 const mobileNavOpen = ref(false);
 
 const navItems = computed(() => {
@@ -32,6 +33,13 @@ const isManagementRoute = computed(() => navItems.value.length > 0);
 
 function closeMobileNav() {
   mobileNavOpen.value = false;
+}
+
+function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  closeMobileNav();
+  router.push("/login");
 }
 </script>
 
@@ -72,6 +80,15 @@ function closeMobileNav() {
             <span class="mobile-navigation-icon">{{ item.icon }}</span>
             <span>{{ item.label }}</span>
           </RouterLink>
+
+          <button
+            type="button"
+            class="mobile-navigation-link mobile-navigation-logout"
+            @click="logout"
+          >
+            <span class="mobile-navigation-icon">⏻</span>
+            <span>Log Out</span>
+          </button>
         </nav>
       </aside>
     </div>
@@ -318,6 +335,21 @@ canvas {
   .mobile-navigation-link.router-link-active {
     color: #ffffff;
     background: rgba(255, 255, 255, 0.13);
+  }
+
+  .mobile-navigation-logout {
+    width: 100%;
+    margin-top: 12px;
+    padding-top: 18px;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px 10px 0 0;
+    background: transparent;
+    color: #ff8686;
+    font-size: 13px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
   .mobile-navigation-icon {

@@ -819,11 +819,15 @@ public function history(Request $request)
 
             $path = 'reports/' . Str::uuid() . '.webp';
 
-            if (! Storage::disk('public')->put($path, $contents)) {
+            // Disimpan di Supabase Storage (disk "s3", S3-compatible) karena
+            // disk lokal Render bersifat ephemeral — file hilang tiap
+            // container restart/redeploy. Return full URL-nya langsung
+            // supaya frontend gak perlu tau di mana file-nya disimpan.
+            if (! Storage::disk('s3')->put($path, $contents)) {
                 throw new \RuntimeException('Unable to store the converted image.');
             }
 
-            return $path;
+            return Storage::disk('s3')->url($path);
         } finally {
             imagedestroy($image);
         }
