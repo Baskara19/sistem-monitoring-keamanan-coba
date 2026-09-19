@@ -756,11 +756,8 @@ public function history(Request $request)
             } catch (\Throwable $exception) {
                 report($exception);
 
-                // TODO SEMENTARA: tampilkan pesan asli buat debugging upload
-                // foto yang gagal di production. Revert ke pesan generik
-                // setelah akar masalahnya ketemu.
                 throw ValidationException::withMessages([
-                    'photo' => 'Foto tidak dapat dikonversi ke format WebP. [debug: ' . get_class($exception) . ': ' . $exception->getMessage() . ']',
+                    'photo' => 'Foto tidak dapat dikonversi ke format WebP.',
                 ]);
             }
         }
