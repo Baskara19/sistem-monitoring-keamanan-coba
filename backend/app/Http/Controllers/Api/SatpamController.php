@@ -727,7 +727,10 @@ public function history(Request $request)
             'report_type'   => 'required|in:rutin,insiden,temuan',
             'kondisi'       => 'required|in:' . implode(',', array_keys(self::KONDISI_LABELS)),
             'description'   => 'nullable|string|max:300',
-            'photo'         => 'nullable|image|max:5120',
+            // 20MB — foto langsung dari kamera HP gampang lebih dari 5MB.
+            // Ukuran akhirnya bakal jauh lebih kecil kok karena di-resize +
+            // dikonversi ke WebP di convertPhotoToWebp().
+            'photo'         => 'nullable|image|max:20480',
         ]);
 
         $satpam = Satpam::where('user_id', $request->user()->id)->first();
@@ -805,6 +808,18 @@ public function history(Request $request)
         }
 
         try {
+            // Kamera HP nyimpen orientasi potret/lanskap lewat tag EXIF
+            // (pixel aslinya gak diputer) — tanpa ini foto satpam sering
+            // muncul miring/kesamping di halaman laporan.
+            if ($mime === 'image/jpeg') {
+                $image = $this->applyExifOrientation($image, $photo->getRealPath());
+            }
+
+            // Foto kamera HP modern bisa 4000px+ di sisi terpanjang —
+            // turunkan dulu biar gak berat diproses & hasil file-nya gak
+            // kebesaran buat foto laporan.
+            $image = $this->downscale($image, 1600);
+
             // Keep transparent backgrounds when the source image has an alpha channel.
             imagealphablending($image, false);
             imagesavealpha($image, true);
@@ -831,5 +846,57 @@ public function history(Request $request)
         } finally {
             imagedestroy($image);
         }
+    }
+
+    /**
+     * Putar gambar sesuai tag EXIF Orientation-nya (kalau ada). Kamera HP
+     * nyimpen rotasi lewat metadata ini, bukan beneran muter pixel-nya.
+     */
+    private function applyExifOrientation(\GdImage $image, string $path): \GdImage
+    {
+        $exif = @exif_read_data($path);
+        $orientation = $exif['Orientation'] ?? 1;
+
+        $rotated = match ($orientation) {
+            3       => imagerotate($image, 180, 0),
+            6       => imagerotate($image, -90, 0),
+            8       => imagerotate($image, 90, 0),
+            default => $image,
+        };
+
+        if ($rotated === false) {
+            return $image;
+        }
+
+        if ($rotated !== $image) {
+            imagedestroy($image);
+        }
+
+        return $rotated;
+    }
+
+    /**
+     * Turunkan resolusi kalau sisi terpanjangnya lebih dari $maxSide, biar
+     * gambar dari kamera HP (bisa 4000px+) gak berat diproses/disimpan.
+     */
+    private function downscale(\GdImage $image, int $maxSide): \GdImage
+    {
+        $width = imagesx($image);
+        $height = imagesy($image);
+
+        if (max($width, $height) <= $maxSide) {
+            return $image;
+        }
+
+        $ratio = $maxSide / max($width, $height);
+        $resized = imagescale($image, (int) round($width * $ratio), (int) round($height * $ratio), IMG_BILINEAR_FIXED);
+
+        if ($resized === false) {
+            return $image;
+        }
+
+        imagedestroy($image);
+
+        return $resized;
     }
 }
