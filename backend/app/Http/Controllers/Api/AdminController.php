@@ -166,6 +166,7 @@ private function formatRoute(PatrolRoute $route): array
             'patrol_point_id'  => $point->patrol_point_id,
             'name'             => $point->patrolPoint?->name ?? '-',
             'location_address' => $point->patrolPoint?->location_address,
+            'qr_code'          => $point->patrolPoint?->qr_code,
             'sequence_order'   => $point->sequence_order,
         ])->values(),
     ];
