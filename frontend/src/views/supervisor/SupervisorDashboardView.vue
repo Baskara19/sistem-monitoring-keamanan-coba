@@ -2472,4 +2472,150 @@ td {
 .status-dot.purple {
   background: #7c3aed;
 }
+/* =========================================
+   MOBILE IMPROVEMENT
+========================================= */
+
+@media (max-width: 768px) {
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .topbar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .page-heading h1 {
+    font-size: 20px;
+  }
+
+  .welcome-section h2 {
+    font-size: 22px;
+  }
+
+  .card-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .card-header select {
+    width: 100%;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .stat-card {
+    min-height: auto;
+    padding: 18px;
+  }
+
+  .stat-content h3 {
+    font-size: 30px;
+  }
+
+  .progress-circle {
+    width: 140px;
+    height: 140px;
+  }
+
+  .circle-inner {
+    width: 100px;
+    height: 100px;
+  }
+
+  .circle-inner strong {
+    font-size: 24px;
+  }
+
+  .progress-item {
+    justify-content: space-between;
+  }
+
+  .activity-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .activity-time {
+    margin-left: 46px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-content {
+    padding: 16px;
+  }
+
+  .topbar {
+    padding: 16px;
+  }
+
+  .page-heading h1 {
+    font-size: 18px;
+  }
+
+  .page-heading p {
+    font-size: 11px;
+  }
+
+  .welcome-section h2 {
+    font-size: 20px;
+  }
+
+  .welcome-section p {
+    font-size: 12px;
+  }
+
+  .card-header h3 {
+    font-size: 16px;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .stat-content h3 {
+    font-size: 26px;
+  }
+
+  .stat-content p,
+  .activity-content span,
+  td,
+  th {
+    font-size: 11px;
+  }
+
+  .progress-circle {
+    width: 120px;
+    height: 120px;
+  }
+
+  .circle-inner {
+    width: 88px;
+    height: 88px;
+  }
+
+  .circle-inner strong {
+    font-size: 20px;
+  }
+
+  .guard-avatar,
+  .activity-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
 </style>

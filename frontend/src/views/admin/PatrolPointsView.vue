@@ -99,8 +99,8 @@ const showQrCode = async (point) => {
     selectedQrPoint.value = point;
 
     qrImage.value = await QRCode.toDataURL(point.qr_code, {
-      width: 300,
-      margin: 2,
+      width: 180,
+      margin: 1,
       errorCorrectionLevel: "H",
     });
 
@@ -149,109 +149,141 @@ const printQrCode = () => {
         <title>QR Code - ${point.name}</title>
 
         <style>
-          * {
-            box-sizing: border-box;
-          }
+       @page {
+  size: 85mm 55mm;
+  margin: 0;
+}
 
-          body {
-            margin: 0;
-            padding: 30px;
-            background: white;
-            font-family: Arial, Helvetica, sans-serif;
-            color: #1f2454;
-          }
+* {
+  box-sizing: border-box;
+}
 
-          .print-container {
-            width: 100%;
-            max-width: 600px;
-            margin: 0 auto;
-            text-align: center;
-            border: 3px solid #1f2454;
-            border-radius: 20px;
-            padding: 35px;
-          }
+html,
+body {
+  width: 85mm;
+  height: 55mm;
+  margin: 0;
+  padding: 0;
+  background: white;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #1f2454;
+}
 
-          .brand {
-            font-size: 14px;
-            font-weight: 800;
-            letter-spacing: 2px;
-            color: #1f2454;
-            margin-bottom: 5px;
-          }
+.print-container {
+  width: 85mm;
+  height: 55mm;
+  margin: 0;
+  padding: 3mm;
+  text-align: center;
+  border: 2px solid #1f2454;
+  border-radius: 6px;
 
-          .brand-subtitle {
-            font-size: 10px;
-            color: #777;
-            letter-spacing: 1.5px;
-            margin-bottom: 25px;
-          }
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 
-          .title {
-            font-size: 24px;
-            font-weight: 800;
-            margin-bottom: 8px;
-          }
+  overflow: hidden;
+}
 
-          .location {
-            font-size: 15px;
-            color: #666;
-            margin-bottom: 25px;
-          }
+.brand {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  margin: 0;
+}
 
-          .qr-wrapper {
-            display: flex;
-            justify-content: center;
-            margin: 20px 0;
-          }
+.brand-subtitle {
+  font-size: 6px;
+  color: #777;
+  letter-spacing: 1px;
+  margin: 1mm 0 2mm;
+}
 
-          .qr {
-            width: 360px;
-            height: 360px;
-            image-rendering: pixelated;
-          }
+.title {
+  font-size: 9px;
+  font-weight: 800;
+  margin: 0 0 1mm;
+}
 
-          .code-label {
-            font-size: 10px;
-            color: #888;
-            font-weight: bold;
-            letter-spacing: 1.5px;
-            margin-top: 15px;
-          }
+.location {
+  font-size: 6px;
+  color: #666;
+  margin: 0 0 1.5mm;
+  max-width: 75mm;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-          .code {
-            margin-top: 5px;
-            font-size: 18px;
-            font-weight: 800;
-            letter-spacing: 1px;
-            word-break: break-all;
-          }
+.qr-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0;
+}
 
-          .instruction {
-            margin-top: 25px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
-            font-size: 12px;
-            line-height: 1.6;
-            color: #666;
-          }
+.qr {
+  width: 25mm;
+  height: 25mm;
+  display: block;
+  image-rendering: pixelated;
+}
 
-          .warning {
-            margin-top: 15px;
-            font-size: 10px;
-            color: #999;
-          }
+.code-label {
+  font-size: 6px;
+  color: #888;
+  font-weight: bold;
+  letter-spacing: 1px;
+  margin-top: 1mm;
+}
 
-          @media print {
-            body {
-              padding: 0;
-            }
+.code {
+  margin-top: 0.5mm;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  max-width: 75mm;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-            .print-container {
-              max-width: none;
-              border: 3px solid #1f2454;
-              margin: 0;
-            }
-          }
+.instruction {
+  margin-top: 1.5mm;
+  padding-top: 1mm;
+  border-top: 1px solid #ddd;
+  font-size: 6px;
+  line-height: 1.2;
+  color: #666;
+}
+
+.warning {
+  margin-top: 1mm;
+  font-size: 5px;
+  color: #999;
+}
+
+@media print {
+  html,
+  body {
+    width: 85mm;
+    height: 55mm;
+    margin: 0;
+    padding: 0;
+  }
+
+  .print-container {
+    width: 85mm;
+    height: 55mm;
+    margin: 0;
+    padding: 3mm;
+    border: 2px solid #1f2454;
+    overflow: hidden;
+    page-break-after: avoid;
+    page-break-inside: avoid;
+  }
+}
         </style>
       </head>
 
@@ -325,7 +357,10 @@ const deletePatrolPoint = async (id) => {
   if (!result.isConfirmed) return;
 
   try {
-    await axios.delete(`https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${id}`, getAuthHeaders());
+    await axios.delete(
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${id}`,
+      getAuthHeaders(),
+    );
 
     await Swal.fire({
       icon: "success",
@@ -457,9 +492,7 @@ onMounted(() => {
           </div>
 
           <div class="header-actions">
-            <button class="btn-outline" @click="goToRoutes">
-              🗺 Kelola Rute
-            </button>
+            <button class="btn-outline" @click="goToRoutes">🗺 Kelola Rute</button>
 
             <button class="btn-primary" @click="goToCreate">
               <span> + </span>
@@ -1481,9 +1514,6 @@ td {
   box-shadow: 0 5px 14px rgba(31, 36, 84, 0.08);
 }
 
-
-
-
 .qr-empty {
   color: var(--text-secondary);
 
@@ -1671,8 +1701,6 @@ td {
 
   box-shadow: 0 8px 25px rgba(31, 36, 84, 0.08);
 }
-
-
 
 .qr-image {
   width: 290px;

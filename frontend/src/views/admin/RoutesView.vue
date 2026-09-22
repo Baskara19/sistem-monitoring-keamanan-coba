@@ -50,7 +50,10 @@ const fetchRoutes = async () => {
   error.value = "";
 
   try {
-    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes", getAuthHeaders());
+    const response = await axios.get(
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes",
+      getAuthHeaders(),
+    );
     routes.value = response.data.routes ?? [];
   } catch (err) {
     error.value = err.response?.data?.message || "Gagal memuat data rute patroli.";
@@ -61,7 +64,10 @@ const fetchRoutes = async () => {
 
 const fetchPatrolPoints = async () => {
   try {
-    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points", getAuthHeaders());
+    const response = await axios.get(
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points",
+      getAuthHeaders(),
+    );
     patrolPoints.value = response.data.patrol_points ?? [];
   } catch (err) {
     console.error(err);
@@ -160,12 +166,16 @@ const submitForm = async () => {
     };
 
     if (modalMode.value === "create") {
-      await axios.post("https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes", payload, getAuthHeaders());
+      await axios.post(
+        "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes",
+        payload,
+        getAuthHeaders(),
+      );
     } else {
       await axios.put(
         `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes/${selectedRouteId.value}`,
         payload,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
     }
 
@@ -195,13 +205,343 @@ const deleteRoute = async (route) => {
   if (!result.isConfirmed) return;
 
   try {
-    await axios.delete(`https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes/${route.id}`, getAuthHeaders());
+    await axios.delete(
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/routes/${route.id}`,
+      getAuthHeaders(),
+    );
     await fetchRoutes();
   } catch (err) {
     Swal.fire({
       icon: "error",
       title: "Gagal Menghapus",
       text: err.response?.data?.message || "Terjadi kesalahan.",
+    });
+  }
+};
+
+const printRouteQrs = async (route) => {
+  if (!route.points || route.points.length === 0) {
+    Swal.fire({
+      icon: "warning",
+      title: "Tidak Ada Titik",
+      text: "Rute ini belum memiliki titik patroli.",
+      confirmButtonText: "OK",
+    });
+
+    return;
+  }
+
+  try {
+    const QRCode = await import("qrcode");
+
+    const qrItems = await Promise.all(
+      route.points
+        .slice()
+        .sort((a, b) => a.sequence_order - b.sequence_order)
+        .map(async (point, index) => {
+          const qrCode = point.qr_code || point.patrol_point?.qr_code;
+
+          if (!qrCode) {
+            return {
+              index: index + 1,
+              name: point.name,
+              qrImage: "",
+              code: "-",
+            };
+          }
+
+          const qrImage = await QRCode.toDataURL(qrCode, {
+            width: 300,
+            margin: 1,
+            errorCorrectionLevel: "H",
+          });
+
+          return {
+            index: index + 1,
+            name: point.name,
+            qrImage,
+            code: qrCode,
+          };
+        }),
+    );
+
+    const printWindow = window.open("", "_blank", "width=1000,height=900");
+
+    if (!printWindow) {
+      Swal.fire({
+        icon: "error",
+        title: "Popup Diblokir",
+        text: "Izinkan popup pada browser untuk mencetak QR Code.",
+        confirmButtonText: "OK",
+      });
+
+      return;
+    }
+
+    const qrCards = qrItems
+      .map(
+        (item) => `
+          <div class="qr-card">
+            <div class="sequence">
+              TITIK ${item.index}
+            </div>
+
+            <div class="point-name">
+              ${item.name}
+            </div>
+
+            ${
+              item.qrImage
+                ? `
+                  <img
+                    src="${item.qrImage}"
+                    class="qr-image"
+                    alt="QR Code ${item.name}"
+                  />
+                `
+                : `
+                  <div class="qr-missing">
+                    QR TIDAK TERSEDIA
+                  </div>
+                `
+            }
+
+            <div class="qr-code">
+              ${item.code}
+            </div>
+
+            <div class="instruction">
+              SCAN SAAT PATROLI
+            </div>
+          </div>
+        `,
+      )
+      .join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>QR Rute - ${route.name}</title>
+
+          <style>
+            @page {
+              size: A4;
+              margin: 8mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              width: 100%;
+              background: white;
+              font-family: Arial, Helvetica, sans-serif;
+              color: #1f2454;
+            }
+
+            .page {
+              width: 100%;
+            }
+
+            .header {
+              text-align: center;
+              margin-bottom: 6mm;
+            }
+
+            .brand {
+              font-size: 16px;
+              font-weight: 900;
+              letter-spacing: 2px;
+              color: #1f2454;
+            }
+
+            .subtitle {
+              margin-top: 1mm;
+              font-size: 8px;
+              color: #777;
+              letter-spacing: 1.5px;
+            }
+
+            .route-name {
+              margin-top: 3mm;
+              font-size: 15px;
+              font-weight: 800;
+              color: #1f2454;
+            }
+
+            .route-info {
+              margin-top: 1mm;
+              font-size: 9px;
+              color: #777;
+            }
+
+            .qr-grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 5mm;
+              width: 100%;
+            }
+
+            .qr-card {
+              width: 100%;
+              height: 70mm;
+
+              border: 1.5px solid #1f2454;
+              border-radius: 5px;
+
+              padding: 4mm;
+
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: flex-start;
+
+              text-align: center;
+
+              break-inside: avoid;
+              page-break-inside: avoid;
+
+              overflow: hidden;
+            }
+
+            .sequence {
+              font-size: 7px;
+              font-weight: 800;
+              color: #e87500;
+              letter-spacing: 1px;
+              margin-bottom: 1.5mm;
+            }
+
+            .point-name {
+              width: 100%;
+              min-height: 9mm;
+
+              display: flex;
+              align-items: center;
+              justify-content: center;
+
+              font-size: 10px;
+              font-weight: 800;
+              color: #1f2454;
+
+              line-height: 1.25;
+
+              margin-bottom: 2mm;
+            }
+
+            .qr-image {
+              width: 40mm;
+              height: 40mm;
+
+              display: block;
+
+              image-rendering: pixelated;
+            }
+
+            .qr-code {
+              margin-top: 2mm;
+
+              max-width: 100%;
+
+              font-size: 7px;
+              font-weight: 800;
+
+              color: #1f2454;
+
+              word-break: break-all;
+            }
+
+            .instruction {
+              margin-top: 1.5mm;
+
+              font-size: 6px;
+              color: #888;
+
+              letter-spacing: 0.5px;
+            }
+
+            .qr-missing {
+              width: 40mm;
+              height: 40mm;
+
+              display: flex;
+              align-items: center;
+              justify-content: center;
+
+              border: 1px dashed #ccc;
+
+              font-size: 7px;
+              color: #999;
+            }
+
+            @media print {
+              html,
+              body {
+                width: 210mm;
+                min-height: 297mm;
+              }
+
+              .qr-grid {
+                page-break-inside: avoid;
+              }
+
+              .qr-card {
+                page-break-inside: avoid;
+                break-inside: avoid;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="page">
+
+            <div class="header">
+              <div class="brand">
+                KAI SECURITY
+              </div>
+
+              <div class="subtitle">
+                MONITORING SYSTEM
+              </div>
+
+              <div class="route-name">
+                RUTE: ${route.name}
+              </div>
+
+              <div class="route-info">
+                ${qrItems.length} titik patroli
+              </div>
+            </div>
+
+            <div class="qr-grid">
+              ${qrCards}
+            </div>
+
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+  } catch (err) {
+    console.error(err);
+
+    Swal.fire({
+      icon: "error",
+      title: "Gagal Membuat QR",
+      text: "Terjadi kesalahan saat menyiapkan QR Code untuk dicetak.",
+      confirmButtonText: "OK",
     });
   }
 };
@@ -298,12 +638,7 @@ onMounted(() => {
           <button class="btn-primary" @click="openCreateModal">+ Tambah Rute</button>
         </div>
 
-        <input
-          v-model="search"
-          type="text"
-          placeholder="Cari nama rute..."
-          class="search-input"
-        />
+        <input v-model="search" type="text" placeholder="Cari nama rute..." class="search-input" />
 
         <div v-if="loading" class="loading-box">
           <div class="spinner"></div>
@@ -319,14 +654,28 @@ onMounted(() => {
             <div class="route-card-top">
               <div>
                 <h3>{{ route.name }}</h3>
-                <span class="badge" :class="route.status === 'aktif' ? 'badge-aktif' : 'badge-nonaktif'">
+                <span
+                  class="badge"
+                  :class="route.status === 'aktif' ? 'badge-aktif' : 'badge-nonaktif'"
+                >
                   {{ route.status === "aktif" ? "Aktif" : "Nonaktif" }}
                 </span>
               </div>
 
               <div class="route-actions">
+                <button
+                  class="btn-icon btn-print-route"
+                  title="Cetak Semua QR"
+                  @click="printRouteQrs(route)"
+                >
+                  🖨️
+                </button>
+
                 <button class="btn-icon" title="Edit" @click="openEditModal(route)">✏️</button>
-                <button class="btn-icon btn-icon-danger" title="Hapus" @click="deleteRoute(route)">🗑️</button>
+
+                <button class="btn-icon btn-icon-danger" title="Hapus" @click="deleteRoute(route)">
+                  🗑️
+                </button>
               </div>
             </div>
 
@@ -362,7 +711,11 @@ onMounted(() => {
 
           <div class="form-group">
             <label>Deskripsi (Opsional)</label>
-            <textarea v-model="form.description" rows="2" placeholder="Catatan tentang rute ini..."></textarea>
+            <textarea
+              v-model="form.description"
+              rows="2"
+              placeholder="Catatan tentang rute ini..."
+            ></textarea>
           </div>
 
           <div class="form-group">
@@ -381,12 +734,18 @@ onMounted(() => {
                 Belum ada titik dipilih.
               </div>
 
-              <div v-for="(point, index) in selectedPointObjects" :key="point.id" class="point-list-item">
+              <div
+                v-for="(point, index) in selectedPointObjects"
+                :key="point.id"
+                class="point-list-item"
+              >
                 <span class="point-index">{{ index + 1 }}</span>
                 <span class="point-name">{{ point.name }}</span>
 
                 <div class="point-item-actions">
-                  <button type="button" :disabled="index === 0" @click="movePoint(index, -1)">↑</button>
+                  <button type="button" :disabled="index === 0" @click="movePoint(index, -1)">
+                    ↑
+                  </button>
                   <button
                     type="button"
                     :disabled="index === selectedPointObjects.length - 1"
@@ -404,7 +763,9 @@ onMounted(() => {
                 <option value="" disabled>Pilih titik untuk ditambahkan</option>
                 <option v-for="p in availablePoints" :key="p.id" :value="p.id">{{ p.name }}</option>
               </select>
-              <button type="button" class="btn-add" :disabled="!pointToAdd" @click="addPoint">+ Tambah</button>
+              <button type="button" class="btn-add" :disabled="!pointToAdd" @click="addPoint">
+                + Tambah
+              </button>
             </div>
           </div>
         </div>
@@ -466,12 +827,33 @@ onMounted(() => {
   padding: 0 10px 32px;
 }
 
-.brand-mark { font-size: 27px; font-weight: 900; font-style: italic; letter-spacing: -2px; }
-.brand-info { display: flex; flex-direction: column; }
-.brand-info h2 { margin: 0; font-size: 13px; letter-spacing: 1px; }
-.brand-info span { margin-top: 3px; color: #bfc2d5; font-size: 8px; letter-spacing: 1.5px; }
+.brand-mark {
+  font-size: 27px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -2px;
+}
+.brand-info {
+  display: flex;
+  flex-direction: column;
+}
+.brand-info h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.brand-info span {
+  margin-top: 3px;
+  color: #bfc2d5;
+  font-size: 8px;
+  letter-spacing: 1.5px;
+}
 
-.sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 .nav-item {
   display: flex;
@@ -487,7 +869,10 @@ onMounted(() => {
   transition: 0.25s;
 }
 
-.nav-item:hover { background: rgba(255, 255, 255, 0.08); color: white; }
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+}
 
 .nav-item.router-link-active {
   background: linear-gradient(135deg, var(--accent), var(--accent-light));
@@ -495,9 +880,16 @@ onMounted(() => {
   box-shadow: 0 8px 20px rgba(232, 117, 0, 0.2);
 }
 
-.nav-icon { width: 20px; text-align: center; font-size: 18px; }
+.nav-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 18px;
+}
 
-.sidebar-footer { margin-top: auto; padding-top: 20px; }
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 20px;
+}
 
 .logout-button {
   width: 100%;
@@ -516,10 +908,17 @@ onMounted(() => {
   transition: 0.25s;
 }
 
-.logout-button:hover { background: rgba(214, 48, 49, 0.16); color: #ffb7b7; }
+.logout-button:hover {
+  background: rgba(214, 48, 49, 0.16);
+  color: #ffb7b7;
+}
 
 /* MAIN */
-.main-content { width: 100%; min-height: 100vh; margin-left: 260px; }
+.main-content {
+  width: 100%;
+  min-height: 100vh;
+  margin-left: 260px;
+}
 
 /* TOPBAR */
 .topbar {
@@ -545,22 +944,50 @@ onMounted(() => {
   padding: 0 0 6px;
 }
 
-.page-heading h1 { margin: 0; font-size: 23px; font-weight: 700; color: var(--primary); }
-.page-heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; }
-
-.user-profile { display: flex; align-items: center; gap: 11px; flex-shrink: 0; }
-
-.profile-avatar {
-  width: 42px; height: 42px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 13px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  color: white; font-size: 15px; font-weight: 700;
+.page-heading h1 {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.page-heading p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
-.profile-info { display: flex; flex-direction: column; }
-.profile-info strong { font-size: 13px; }
-.profile-info span { margin-top: 2px; color: var(--text-secondary); font-size: 11px; }
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-shrink: 0;
+}
+
+.profile-avatar {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+}
+.profile-info strong {
+  font-size: 13px;
+}
+.profile-info span {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
 
 /* CONTENT */
 .content {
@@ -571,17 +998,34 @@ onMounted(() => {
 }
 
 .error-alert {
-  display: flex; align-items: center; gap: 12px;
-  margin-bottom: 22px; padding: 15px 18px;
-  background: #fff1f1; border-left: 4px solid var(--danger);
-  border-radius: 10px; color: var(--danger);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  padding: 15px 18px;
+  background: #fff1f1;
+  border-left: 4px solid var(--danger);
+  border-radius: 10px;
+  color: var(--danger);
 }
-.error-alert strong { display: block; font-size: 13px; }
-.error-alert p { margin: 3px 0 0; font-size: 12px; }
+.error-alert strong {
+  display: block;
+  font-size: 13px;
+}
+.error-alert p {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
 .error-alert button {
-  margin-left: auto; border: none; border-radius: 8px;
-  padding: 9px 14px; background: var(--danger); color: white;
-  font-size: 11px; font-weight: 700; cursor: pointer;
+  margin-left: auto;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 14px;
+  background: var(--danger);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .content-header {
@@ -591,9 +1035,22 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-.section-label { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: 1.4px; }
-.content-header h2 { margin: 6px 0 4px; font-size: 24px; color: var(--primary); }
-.content-header p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.section-label {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+}
+.content-header h2 {
+  margin: 6px 0 4px;
+  font-size: 24px;
+  color: var(--primary);
+}
+.content-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
 
 .search-input {
   width: 100%;
@@ -609,25 +1066,43 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232, 117, 0, 0.08); }
+.search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232, 117, 0, 0.08);
+}
 
 /* LOADING / EMPTY */
 .loading-box {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 60px; color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 60px;
+  color: var(--text-secondary);
 }
 
 .spinner {
-  width: 36px; height: 36px; border-radius: 50%;
-  border: 3px solid var(--border); border-top-color: var(--accent);
-  animation: spin 0.7s linear infinite; margin-bottom: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+  margin-bottom: 14px;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .empty-state {
-  padding: 50px; text-align: center; color: var(--text-secondary);
-  background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+  padding: 50px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
 }
 
 /* ROUTE GRID */
@@ -659,7 +1134,11 @@ onMounted(() => {
   color: var(--primary);
 }
 
-.route-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.route-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
 
 .badge {
   display: inline-block;
@@ -669,8 +1148,14 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.badge-aktif { background: rgba(53, 120, 229, 0.12); color: #3578e5; }
-.badge-nonaktif { background: #f1f2f6; color: var(--text-secondary); }
+.badge-aktif {
+  background: rgba(53, 120, 229, 0.12);
+  color: #3578e5;
+}
+.badge-nonaktif {
+  background: #f1f2f6;
+  color: var(--text-secondary);
+}
 
 .route-description {
   margin: 0 0 14px;
@@ -708,16 +1193,30 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.point-arrow { color: var(--border); font-size: 12px; }
+.point-arrow {
+  color: var(--border);
+  font-size: 12px;
+}
 
 .btn-icon {
-  width: 32px; height: 32px; border: none; border-radius: 8px;
-  background: var(--background); color: var(--text-primary);
-  font-size: 13px; cursor: pointer; display: flex;
-  align-items: center; justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.btn-icon:hover { background: var(--border); }
-.btn-icon-danger:hover { background: rgba(214, 48, 49, 0.1); }
+.btn-icon:hover {
+  background: var(--border);
+}
+.btn-icon-danger:hover {
+  background: rgba(214, 48, 49, 0.1);
+}
 
 .btn-primary {
   padding: 11px 22px;
@@ -731,16 +1230,27 @@ onMounted(() => {
   box-shadow: 0 6px 16px rgba(232, 117, 0, 0.25);
 }
 
-.btn-primary:hover { transform: translateY(-1px); }
-.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+.btn-primary:hover {
+  transform: translateY(-1px);
+}
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
 
 /* MODAL */
 .modal-overlay {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   background: rgba(31, 36, 84, 0.4);
   backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 100; padding: 20px; box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+  box-sizing: border-box;
 }
 
 .modal {
@@ -753,27 +1263,53 @@ onMounted(() => {
 }
 
 .modal-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 22px 26px; border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; background: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 26px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--white);
 }
 
-.modal-header h3 { margin: 0; font-size: 17px; color: var(--primary); }
-.modal-close { border: none; background: none; font-size: 17px; color: var(--text-secondary); cursor: pointer; }
+.modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+  color: var(--primary);
+}
+.modal-close {
+  border: none;
+  background: none;
+  font-size: 17px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
 
-.modal-body { padding: 24px 26px; }
+.modal-body {
+  padding: 24px 26px;
+}
 
 .modal-error {
-  margin-bottom: 16px; padding: 10px 12px; border-radius: 10px;
-  background: #fff1f1; border-left: 3px solid var(--danger);
-  color: var(--danger); font-size: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff1f1;
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: 12px;
 }
 
-.form-group { margin-bottom: 18px; }
+.form-group {
+  margin-bottom: 18px;
+}
 
 .form-group label {
-  display: block; margin-bottom: 7px; font-size: 13px;
-  font-weight: 600; color: var(--primary);
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
 }
 
 .form-group input,
@@ -828,7 +1364,9 @@ onMounted(() => {
   border-bottom: 1px solid var(--border);
 }
 
-.point-list-item:last-child { border-bottom: none; }
+.point-list-item:last-child {
+  border-bottom: none;
+}
 
 .point-index {
   width: 22px;
@@ -866,7 +1404,10 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.point-item-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+.point-item-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 
 .point-item-actions .remove-btn {
   border-color: rgba(214, 48, 49, 0.3);
@@ -903,12 +1444,20 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.btn-add:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .modal-footer {
-  display: flex; justify-content: flex-end; gap: 12px;
-  padding: 18px 26px; border-top: 1px solid var(--border);
-  position: sticky; bottom: 0; background: var(--white);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 18px 26px;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: var(--white);
 }
 
 .btn-cancel {
@@ -922,27 +1471,70 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.btn-cancel:hover { background: var(--background); }
+.btn-cancel:hover {
+  background: var(--background);
+}
 
 @media (max-width: 900px) {
-  .sidebar { width: 76px; padding: 20px 10px; }
-  .brand-info { display: none; }
-  .nav-item { justify-content: center; padding: 0; font-size: 0; }
-  .nav-icon { font-size: 20px; }
-  .logout-button { justify-content: center; padding: 0; font-size: 0; }
-  .logout-button span { font-size: 18px; }
-  .main-content { margin-left: 76px; }
+  .sidebar {
+    width: 76px;
+    padding: 20px 10px;
+  }
+  .brand-info {
+    display: none;
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+  }
+  .nav-icon {
+    font-size: 20px;
+  }
+  .logout-button {
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+  }
+  .logout-button span {
+    font-size: 18px;
+  }
+  .main-content {
+    margin-left: 76px;
+  }
 }
 
 @media (max-width: 700px) {
-  .sidebar { display: none; }
-  .main-content { margin-left: 0; }
-  .topbar { padding: 16px 20px; flex-direction: column; align-items: flex-start; }
-  .content { padding: 20px 16px 40px; }
-  .content-header { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .btn-primary { width: 100%; }
-  .search-input { max-width: 100%; }
-  .route-grid { grid-template-columns: 1fr; }
-  .modal { width: 100%; }
+  .sidebar {
+    display: none;
+  }
+  .main-content {
+    margin-left: 0;
+  }
+  .topbar {
+    padding: 16px 20px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .content {
+    padding: 20px 16px 40px;
+  }
+  .content-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .btn-primary {
+    width: 100%;
+  }
+  .search-input {
+    max-width: 100%;
+  }
+  .route-grid {
+    grid-template-columns: 1fr;
+  }
+  .modal {
+    width: 100%;
+  }
 }
 </style>
