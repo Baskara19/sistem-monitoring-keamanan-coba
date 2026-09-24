@@ -149,8 +149,8 @@ const printQrCode = () => {
         <title>QR Code - ${point.name}</title>
 
         <style>
-       @page {
-  size: 85mm 55mm;
+@page {
+  size: 61mm 55mm;
   margin: 0;
 }
 
@@ -160,7 +160,7 @@ const printQrCode = () => {
 
 html,
 body {
-  width: 85mm;
+  width: 61mm;
   height: 55mm;
   margin: 0;
   padding: 0;
@@ -170,7 +170,7 @@ body {
 }
 
 .print-container {
-  width: 85mm;
+  width: 61mm;
   height: 55mm;
   margin: 0;
   padding: 3mm;
@@ -210,7 +210,7 @@ body {
   font-size: 6px;
   color: #666;
   margin: 0 0 1.5mm;
-  max-width: 75mm;
+  max-width: 53mm;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -243,7 +243,7 @@ body {
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.5px;
-  max-width: 75mm;
+  max-width: 53mm;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -267,14 +267,14 @@ body {
 @media print {
   html,
   body {
-    width: 85mm;
+    width: 61mm;
     height: 55mm;
     margin: 0;
     padding: 0;
   }
 
   .print-container {
-    width: 85mm;
+    width: 61mm;
     height: 55mm;
     margin: 0;
     padding: 3mm;
