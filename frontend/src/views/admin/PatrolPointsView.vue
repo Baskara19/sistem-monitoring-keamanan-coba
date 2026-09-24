@@ -150,8 +150,8 @@ const printQrCode = () => {
 
         <style>
 @page {
-  size: 61mm 55mm;
-  margin: 0;
+  size: A4;
+  margin: 8mm;
 }
 
 * {
@@ -160,8 +160,6 @@ const printQrCode = () => {
 
 html,
 body {
-  width: 61mm;
-  height: 55mm;
   margin: 0;
   padding: 0;
   background: white;
@@ -170,10 +168,11 @@ body {
 }
 
 .print-container {
-  width: 61mm;
-  height: 55mm;
+  /* Sama dengan lebar satu kartu pada grid cetak QR rute (A4, 3 kolom). */
+  width: 61.33mm;
+  height: 70mm;
   margin: 0;
-  padding: 3mm;
+  padding: 4mm;
   text-align: center;
   border: 1.5px solid #1f2454;
   border-radius: 5px;
@@ -267,18 +266,13 @@ body {
 @media print {
   html,
   body {
-    width: 61mm;
-    height: 55mm;
-    margin: 0;
-    padding: 0;
+    width: 210mm;
+    min-height: 297mm;
   }
 
   .print-container {
-    width: 61mm;
-    height: 55mm;
-    margin: 0;
-    padding: 3mm;
-    border: 1.5px solid #1f2454;
+    width: 61.33mm;
+    height: 70mm;
     overflow: hidden;
     page-break-after: avoid;
     page-break-inside: avoid;
