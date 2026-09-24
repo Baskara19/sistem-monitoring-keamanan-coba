@@ -175,8 +175,8 @@ body {
   margin: 0;
   padding: 3mm;
   text-align: center;
-  border: 2px solid #1f2454;
-  border-radius: 6px;
+  border: 1.5px solid #1f2454;
+  border-radius: 5px;
 
   display: flex;
   flex-direction: column;
@@ -278,7 +278,7 @@ body {
     height: 55mm;
     margin: 0;
     padding: 3mm;
-    border: 2px solid #1f2454;
+    border: 1.5px solid #1f2454;
     overflow: hidden;
     page-break-after: avoid;
     page-break-inside: avoid;
