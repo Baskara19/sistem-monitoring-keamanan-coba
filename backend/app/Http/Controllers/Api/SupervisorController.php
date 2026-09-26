@@ -401,7 +401,6 @@ class SupervisorController extends Controller
         $end = $start->copy()->endOfMonth();
 
         $satpams = Satpam::with('user:id,name,location_id')
-            ->where('status', 'aktif')
             ->whereHas('user', fn ($query) => $query->where('location_id', $locationId))
             ->orderBy('id')
             ->get();
@@ -414,9 +413,11 @@ class SupervisorController extends Controller
         $countsFor = function ($satpamLogs) {
             return [
                 'berhasil' => $satpamLogs->where('scan_status', 'berhasil')->count(),
+                'terlambat' => $satpamLogs->where('scan_status', 'terlambat')->count(),
                 'anomali' => $satpamLogs->where('scan_status', 'anomali')->count(),
                 'skip' => $satpamLogs->where('scan_status', 'skip')->count(),
-                'lainnya' => $satpamLogs->whereNotIn('scan_status', ['berhasil', 'anomali', 'skip'])->count(),
+                'terlewat' => $satpamLogs->where('scan_status', 'terlewat')->count(),
+                'lainnya' => $satpamLogs->whereNotIn('scan_status', ['berhasil', 'terlambat', 'anomali', 'skip', 'terlewat'])->count(),
                 'total' => $satpamLogs->count(),
             ];
         };
@@ -448,8 +449,10 @@ class SupervisorController extends Controller
             'monthly' => $monthly,
             'leaders' => [
                 'berhasil' => $leader('berhasil'),
+                'terlambat' => $leader('terlambat'),
                 'anomali' => $leader('anomali'),
                 'skip' => $leader('skip'),
+                'terlewat' => $leader('terlewat'),
             ],
             'satpams' => $bySatpam,
             'selected' => $selected,
