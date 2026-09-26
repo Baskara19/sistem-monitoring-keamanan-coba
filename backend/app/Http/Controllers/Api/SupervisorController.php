@@ -410,6 +410,21 @@ class SupervisorController extends Controller
             ->whereBetween('scan_time', [$start, $end])
             ->get(['satpam_id', 'scan_status', 'scan_time']);
 
+        // Hitung total schedule_details yang dijadwalkan per satpam di bulan ini.
+        // "scheduled" = jumlah baris jadwal (titik patroli) yang ditetapkan ke satpam
+        // pada jadwal yang periode-nya overlap dengan bulan yang dipilih.
+        // Nilai ini menjadi "target" pada bar chart PDF per satpam.
+        $scheduledCounts = ScheduleDetail::query()
+            ->whereIn('satpam_id', $satpams->pluck('id'))
+            ->whereHas('schedule', function ($q) use ($start, $end) {
+                $q->where('status', 'aktif')
+                  ->whereDate('start_date', '<=', $end)
+                  ->whereDate('end_date', '>=', $start);
+            })
+            ->selectRaw('satpam_id, COUNT(*) as total_scheduled')
+            ->groupBy('satpam_id')
+            ->pluck('total_scheduled', 'satpam_id');
+
         $countsFor = function ($satpamLogs) {
             return [
                 'berhasil' => $satpamLogs->where('scan_status', 'berhasil')->count(),
@@ -422,12 +437,13 @@ class SupervisorController extends Controller
             ];
         };
 
-        $bySatpam = $satpams->map(function (Satpam $satpam) use ($logs, $countsFor) {
+        $bySatpam = $satpams->map(function (Satpam $satpam) use ($logs, $countsFor, $scheduledCounts) {
             $counts = $countsFor($logs->where('satpam_id', $satpam->id));
 
             return [
-                'id' => $satpam->id,
-                'name' => $satpam->user?->name ?? '-',
+                'id'        => $satpam->id,
+                'name'      => $satpam->user?->name ?? '-',
+                'scheduled' => (int) ($scheduledCounts[$satpam->id] ?? 0),
                 ...$counts,
             ];
         })->values();

@@ -778,10 +778,9 @@
               <strong>KAI SECURITY</strong>
             </div>
             <div class="print-recap-meta">
-              <span
-                >Total scan: <b>{{ satpam.total }}</b></span
-              ><span
-                >Dicetak: <b>{{ currentDate }}</b></span
+              <span>Target jadwal: <b>{{ satpam.scheduled }}</b></span
+              ><span>Total scan: <b>{{ satpam.total }}</b></span
+              ><span>Dicetak: <b>{{ currentDate }}</b></span
               >
             </div>
             <div class="print-chart-block guard-chart">
@@ -802,7 +801,9 @@
             </div>
             <div class="print-guard-total">
               <span
-                >Total scan berhasil <b>{{ satpam.berhasil }}</b></span
+                >Target Jadwal <b>{{ satpam.scheduled }}</b></span
+              ><span
+                >Berhasil <b>{{ satpam.berhasil }}</b></span
               ><span
                 >Terlambat <b>{{ satpam.terlambat }}</b></span
               ><span
@@ -811,6 +812,9 @@
                 >Skip <b>{{ satpam.skip }}</b></span
               ><span
                 >Terlewat <b>{{ satpam.terlewat }}</b></span
+              ><span
+                >Tidak Terlaksana
+                <b>{{ Math.max(0, satpam.scheduled - satpam.total) }}</b></span
               >
             </div>
           </article>
@@ -959,26 +963,44 @@ const statusLabels = {
   anomali: "Anomali",
   skip: "Skip scan",
   terlewat: "Terlewat",
+  tidak_terlaksana: "Tidak Terlaksana",
 };
 const barsFor = (values) => {
-  const max = Math.max(
-    ...["berhasil", "terlambat", "anomali", "skip", "terlewat"].map((key) => values[key] || 0),
-    1,
-  );
+  // Gunakan "scheduled" (target jadwal) sebagai acuan 100% lebar bar.
+  // Jika ada jadwal tapi tidak ada log sama sekali, tampilkan bar
+  // "Tidak Terlaksana" untuk mengisi sisa porsi yang belum tercatat.
+  const scheduled = values.scheduled || 0;
+  const reference = Math.max(scheduled, values.total || 0, 1);
+  const tidakTerlaksana = Math.max(0, scheduled - (values.total || 0));
+
   const colors = {
     berhasil: "#2f9e63",
     terlambat: "#e87500",
     anomali: "#d63031",
     skip: "#7c3aed",
     terlewat: "#3578e5",
+    tidak_terlaksana: "#b0b5c5",
   };
-  return ["berhasil", "terlambat", "anomali", "skip", "terlewat"].map((key) => ({
+
+  const bars = ["berhasil", "terlambat", "anomali", "skip", "terlewat"].map((key) => ({
     key,
     label: statusLabels[key],
     value: values[key] || 0,
-    width: ((values[key] || 0) / max) * 100,
+    width: ((values[key] || 0) / reference) * 100,
     color: colors[key],
   }));
+
+  if (tidakTerlaksana > 0) {
+    bars.push({
+      key: "tidak_terlaksana",
+      label: statusLabels.tidak_terlaksana,
+      value: tidakTerlaksana,
+      width: (tidakTerlaksana / reference) * 100,
+      color: colors.tidak_terlaksana,
+    });
+  }
+
+  return bars;
 };
 const percentFor = (value) =>
   recapChartTotal.value ? `${Math.round(((value || 0) / recapChartTotal.value) * 100)}%` : "0%";
@@ -3226,6 +3248,10 @@ tbody tr:last-child td {
   .print-bar-track i.terlewat {
     background: #3578e5 !important;
   }
+
+  .print-bar-track i.tidak_terlaksana {
+    background: #b0b5c5 !important;
+  }
   .print-legend {
     display: flex;
     flex-direction: column;
@@ -3280,7 +3306,7 @@ tbody tr:last-child td {
   }
   .print-guard-total {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     margin-top: 18px;
   }
