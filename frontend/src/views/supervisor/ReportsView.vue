@@ -784,20 +784,103 @@
               >
             </div>
             <div class="print-chart-block guard-chart">
-              <h3>Rincian status scan</h3>
+              <h3>Diagram Batang Status Scan</h3>
 
-              <div class="print-bars">
-                <div v-for="bar in barsFor(satpam)" :key="bar.key" class="print-bar-row">
-                  <div>
-                    <span>{{ bar.label }}</span>
-                    <b>{{ bar.value }}</b>
-                  </div>
+              <!-- Diagram batang vertikal — dirender via SVG murni agar muncul saat cetak PDF -->
+              <template v-for="vc in [verticalBarsFor(satpam)]" :key="satpam.id + '-vc'">
+                <svg
+                  :viewBox="`0 0 ${vc.svgW} ${vc.svgH}`"
+                  class="guard-bar-svg"
+                  role="img"
+                  :aria-label="`Diagram batang status scan ${satpam.name}`"
+                >
+                  <!-- Grid lines + Y-axis ticks -->
+                  <g v-for="tick in vc.ticks" :key="tick.v">
+                    <line
+                      :x1="vc.ML"
+                      :y1="tick.y"
+                      :x2="vc.ML + vc.W"
+                      :y2="tick.y"
+                      stroke="#eceef2"
+                      stroke-width="0.6"
+                    />
+                    <text
+                      :x="vc.ML - 5"
+                      :y="tick.y + 3"
+                      text-anchor="end"
+                      font-size="7"
+                      fill="#9ea3b5"
+                    >{{ tick.v }}</text>
+                  </g>
 
-                  <div class="print-bar-track">
-                    <i :class="bar.key" :style="{ width: `${bar.width}%` }"></i>
-                  </div>
-                </div>
-              </div>
+                  <!-- Batang per status -->
+                  <g v-for="bar in vc.bars" :key="bar.key">
+                    <rect
+                      :x="bar.x"
+                      :y="bar.y"
+                      :width="bar.bw"
+                      :height="bar.h"
+                      :fill="bar.color"
+                      rx="3"
+                    />
+                    <!-- Nilai di atas batang -->
+                    <text
+                      v-if="bar.value > 0"
+                      :x="bar.cx"
+                      :y="bar.y - 4"
+                      text-anchor="middle"
+                      font-size="7.5"
+                      font-weight="700"
+                      :fill="bar.color"
+                    >{{ bar.value }}</text>
+                    <!-- Label kategori di bawah sumbu X -->
+                    <text
+                      :x="bar.cx"
+                      :y="vc.MT + vc.H + 14"
+                      text-anchor="middle"
+                      font-size="7.5"
+                      fill="#6f7380"
+                    >{{ bar.label }}</text>
+                  </g>
+
+                  <!-- Garis target (putus-putus) -->
+                  <line
+                    :x1="vc.ML"
+                    :y1="vc.targetY"
+                    :x2="vc.ML + vc.W"
+                    :y2="vc.targetY"
+                    stroke="#1f2454"
+                    stroke-width="1.3"
+                    stroke-dasharray="5,3"
+                  />
+                  <text
+                    :x="vc.ML + vc.W + 5"
+                    :y="vc.targetY + 3"
+                    font-size="7"
+                    fill="#1f2454"
+                    font-weight="600"
+                  >Target: {{ vc.scheduled }}</text>
+
+                  <!-- Sumbu X -->
+                  <line
+                    :x1="vc.ML"
+                    :y1="vc.MT + vc.H"
+                    :x2="vc.ML + vc.W"
+                    :y2="vc.MT + vc.H"
+                    stroke="#dfe2e8"
+                    stroke-width="1"
+                  />
+                  <!-- Sumbu Y -->
+                  <line
+                    :x1="vc.ML"
+                    :y1="vc.MT"
+                    :x2="vc.ML"
+                    :y2="vc.MT + vc.H"
+                    stroke="#dfe2e8"
+                    stroke-width="1"
+                  />
+                </svg>
+              </template>
             </div>
             <div class="print-guard-total">
               <span
@@ -1001,6 +1084,62 @@ const barsFor = (values) => {
   }
 
   return bars;
+};
+
+/**
+ * Hitung geometri SVG untuk diagram batang vertikal per satpam.
+ * Batang = 1 per status, tinggi = nilai, acuan Y = scheduled (target).
+ * Garis putus-putus horizontal menunjukkan target jadwal.
+ */
+const verticalBarsFor = (satpam) => {
+  const cats = [
+    { key: "berhasil",   label: "Berhasil",   color: "#2f9e63", value: satpam.berhasil  || 0 },
+    { key: "terlambat",  label: "Terlambat",  color: "#e87500", value: satpam.terlambat || 0 },
+    { key: "anomali",    label: "Anomali",    color: "#d63031", value: satpam.anomali   || 0 },
+    { key: "skip",       label: "Skip",       color: "#7c3aed", value: satpam.skip      || 0 },
+    { key: "terlewat",   label: "Terlewat",   color: "#3578e5", value: satpam.terlewat  || 0 },
+  ];
+
+  const scheduled = satpam.scheduled || 0;
+  const maxVal    = Math.max(scheduled, ...cats.map((c) => c.value), 1);
+
+  // Dimensi canvas SVG
+  const ML = 32; // margin kiri (y-axis label)
+  const MR = 52; // margin kanan (label target)
+  const MT = 18; // margin atas
+  const MB = 30; // margin bawah (x-axis label)
+  const W  = 310; // lebar area chart
+  const H  = 150; // tinggi area chart
+  const svgW = W + ML + MR;
+  const svgH = H + MT + MB;
+
+  const n  = cats.length;
+  const gw = W / n;         // lebar per grup
+  const bw = gw * 0.55;     // lebar batang
+
+  // Skala Y: nilai → koordinat Y dalam chart (0 = atas)
+  const sy = (v) => H - (v / maxVal) * H;
+
+  const bars = cats.map((cat, i) => {
+    const barH = (cat.value / maxVal) * H;
+    return {
+      ...cat,
+      x:  ML + i * gw + (gw - bw) / 2,
+      y:  MT + sy(cat.value),
+      bw,
+      h:  barH,
+      cx: ML + i * gw + gw / 2,
+    };
+  });
+
+  // Tick Y-axis (5 titik)
+  const tickCount = 5;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => {
+    const v = Math.round((maxVal / tickCount) * i);
+    return { v, y: MT + sy(v) };
+  });
+
+  return { bars, scheduled, targetY: MT + sy(scheduled), svgW, svgH, ML, MT, H, W, ticks };
 };
 const percentFor = (value) =>
   recapChartTotal.value ? `${Math.round(((value || 0) / recapChartTotal.value) * 100)}%` : "0%";
@@ -3207,6 +3346,21 @@ tbody tr:last-child td {
 
   .donut-segment.terlewat {
     stroke: #3578e5;
+  }
+
+  /* DIAGRAM BATANG VERTIKAL PER SATPAM */
+  .guard-bar-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    overflow: visible;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .guard-bar-svg rect {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* BAR CHART SATPAM */
