@@ -542,7 +542,7 @@
           <article v-for="(satpam, index) in recap.satpams" :key="satpam.id" class="print-guard-page">
             <div class="print-recap-heading"><div><span>RECAP SATPAM {{ index + 1 }}</span><h2>{{ satpam.name }}</h2><p>Periode {{ recap.period.label || "-" }}</p></div><strong>KAI SECURITY</strong></div>
             <div class="print-recap-meta"><span>Total scan: <b>{{ satpam.total }}</b></span><span>Dicetak: <b>{{ currentDate }}</b></span></div>
-            <div class="print-chart-block guard-chart"><h3>Rincian status scan</h3><div class="print-bars"><div v-for="bar in barsFor(satpam)" :key="bar.key" class="print-bar-row"><div><span>{{ bar.label }}</span><b>{{ bar.value }}</b></div><div class="print-bar-track"><i :class="bar.key" :style="{ width: `${bar.width}%` }"></i></div></div></div></div>
+            <div class="print-chart-block guard-chart"><h3>Rincian status scan</h3><div class="print-bars"><div v-for="bar in barsFor(satpam)" :key="bar.key" class="print-bar-row"><div><span>{{ bar.label }}</span><b>{{ bar.value }}</b></div><div class="print-bar-track" style="display:block;width:100%;height:14px;background:#eceef2;border-radius:7px;overflow:hidden"><i :class="bar.key" :style="{ display: 'block', height: '14px', width: `${bar.width}%`, background: bar.color, borderRadius: '7px' }"></i></div></div></div></div>
             <div class="print-guard-total"><span>Total scan berhasil <b>{{ satpam.berhasil }}</b></span><span>Terlambat <b>{{ satpam.terlambat }}</b></span><span>Anomali <b>{{ satpam.anomali }}</b></span><span>Skip <b>{{ satpam.skip }}</b></span><span>Terlewat <b>{{ satpam.terlewat }}</b></span></div>
           </article>
         </section>
@@ -664,7 +664,8 @@ const donutSegments = computed(() => {
 const statusLabels = { berhasil: "Scan berhasil", terlambat: "Terlambat", anomali: "Anomali", skip: "Skip scan", terlewat: "Terlewat" };
 const barsFor = (values) => {
   const max = Math.max(...["berhasil", "terlambat", "anomali", "skip", "terlewat"].map((key) => values[key] || 0), 1);
-  return ["berhasil", "terlambat", "anomali", "skip", "terlewat"].map((key) => ({ key, label: statusLabels[key], value: values[key] || 0, width: ((values[key] || 0) / max) * 100 }));
+  const colors = { berhasil: "#2f9e63", terlambat: "#e87500", anomali: "#d63031", skip: "#7c3aed", terlewat: "#3578e5" };
+  return ["berhasil", "terlambat", "anomali", "skip", "terlewat"].map((key) => ({ key, label: statusLabels[key], value: values[key] || 0, width: ((values[key] || 0) / max) * 100, color: colors[key] }));
 };
 const percentFor = (value) => recapChartTotal.value ? `${Math.round(((value || 0) / recapChartTotal.value) * 100)}%` : "0%";
 const printLeaders = computed(() => [
