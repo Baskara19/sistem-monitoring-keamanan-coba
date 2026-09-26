@@ -225,6 +225,65 @@
           </div>
         </section>
 
+        <section class="panel recap-controls">
+          <div class="panel-header">
+            <div>
+              <span class="panel-kicker">RECAP BULANAN</span>
+              <h3>Recap performa patroli</h3>
+              <p>Pilih periode dan satpam, lalu cetak hasil recap dalam format PDF.</p>
+            </div>
+            <button class="print-recap-btn" @click="printRecap" :disabled="recapLoading">
+              <span>▣</span>
+              {{ recapLoading ? "Memuat recap..." : "Cetak Recap PDF" }}
+            </button>
+          </div>
+          <div class="recap-filter-grid">
+            <div class="form-group">
+              <label>Bulan Recap</label>
+              <select v-model="recapFilters.bulan" @change="fetchRecap">
+                <option v-for="(month, index) in recapMonths" :key="month" :value="index + 1">{{ month }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Tahun Recap</label>
+              <input v-model.number="recapFilters.tahun" type="number" min="2020" max="2100" @change="fetchRecap" />
+            </div>
+            <div class="form-group">
+              <label>Recap Satu Satpam</label>
+              <select v-model="recapFilters.satpam_id" @change="fetchRecap">
+                <option value="">Semua satpam</option>
+                <option v-for="satpam in recap.satpams" :key="satpam.id" :value="String(satpam.id)">{{ satpam.name }}</option>
+              </select>
+            </div>
+          </div>
+          <p v-if="recapError" class="recap-error">{{ recapError }}</p>
+          <div class="recap-screen-summary">
+            <span><i class="summary-dot green-dot"></i>Berhasil <strong>{{ recap.monthly.berhasil }}</strong></span>
+            <span><i class="summary-dot red-dot"></i>Anomali <strong>{{ recap.monthly.anomali }}</strong></span>
+            <span><i class="summary-dot purple-dot"></i>Skip <strong>{{ recap.monthly.skip }}</strong></span>
+            <span class="recap-note">Chart tersedia saat dicetak ke PDF.</span>
+          </div>
+        </section>
+
+        <section class="print-recap" aria-label="Recap patroli untuk PDF">
+          <div class="print-recap-heading">
+            <div><span>SUPERVISOR</span><h2>Recap Patroli Bulanan</h2><p>Periode {{ recap.period.label || `${recapMonths[recapFilters.bulan - 1]} ${recapFilters.tahun}` }}</p></div>
+            <strong>KAI SECURITY</strong>
+          </div>
+          <div class="print-recap-meta"><span>Objek recap: <b>{{ recap.selected?.name || "Seluruh satpam" }}</b></span><span>Dibuat: <b>{{ currentDate }}</b></span></div>
+          <div class="print-summary-grid">
+            <div><small>Total scan</small><strong>{{ recap.monthly.total }}</strong></div>
+            <div><small>Scan berhasil</small><strong>{{ recap.monthly.berhasil }}</strong></div>
+            <div><small>Anomali</small><strong>{{ recap.monthly.anomali }}</strong></div>
+            <div><small>Skip scan</small><strong>{{ recap.monthly.skip }}</strong></div>
+          </div>
+          <div class="print-chart-grid">
+            <div class="print-chart-block"><h3>Komposisi Scan Bulanan</h3><div class="print-donut-layout"><svg class="print-donut" viewBox="0 0 42 42" role="img" aria-label="Donat komposisi scan bulanan"><circle class="donut-bg" cx="21" cy="21" r="15.9155"></circle><circle v-for="segment in donutSegments" :key="segment.key" class="donut-segment" :class="segment.key" cx="21" cy="21" r="15.9155" :stroke-dasharray="`${segment.length} ${100 - segment.length}`" :stroke-dashoffset="segment.offset"></circle></svg><div class="print-legend"><span><i class="green-dot"></i>Berhasil <b>{{ recap.monthly.berhasil }}</b></span><span><i class="red-dot"></i>Anomali <b>{{ recap.monthly.anomali }}</b></span><span><i class="purple-dot"></i>Skip scan <b>{{ recap.monthly.skip }}</b></span></div></div></div>
+            <div class="print-chart-block"><h3>{{ recap.selected?.name || "Rekap Seluruh Satpam" }}</h3><div class="print-bars"><div v-for="bar in printBars" :key="bar.key" class="print-bar-row"><div><span>{{ bar.label }}</span><b>{{ bar.value }}</b></div><div class="print-bar-track"><i :class="bar.key" :style="{ width: `${bar.width}%` }"></i></div></div></div></div>
+          </div>
+          <div class="print-leader-table"><h3>Satpam dengan aktivitas terbanyak</h3><table><thead><tr><th>Kategori</th><th>Nama satpam</th><th>Jumlah</th></tr></thead><tbody><tr v-for="leader in printLeaders" :key="leader.key"><td>{{ leader.label }}</td><td>{{ leader.name }}</td><td>{{ leader.value }}</td></tr></tbody></table></div>
+        </section>
+
         <!-- =====================================================
              TABLE
         ====================================================== -->
@@ -528,6 +587,69 @@ const loading = ref(false);
 const error = ref("");
 
 // =====================================================
+// RECAP BULANAN - chart hanya tampil pada media print
+// =====================================================
+const recapMonths = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const recapNow = new Date();
+const recapFilters = ref({ bulan: recapNow.getMonth() + 1, tahun: recapNow.getFullYear(), satpam_id: "" });
+const recapLoading = ref(false);
+const recapError = ref("");
+const recap = ref({ monthly: { total: 0, berhasil: 0, anomali: 0, skip: 0 }, leaders: {}, satpams: [], selected: null, period: {} });
+const recapChartTotal = computed(() => (recap.value.monthly.berhasil || 0) + (recap.value.monthly.anomali || 0) + (recap.value.monthly.skip || 0));
+const donutSegments = computed(() => {
+  const total = recapChartTotal.value || 1;
+  let offset = 0;
+  return [
+    { key: "berhasil", length: (recap.value.monthly.berhasil / total) * 100 },
+    { key: "anomali", length: (recap.value.monthly.anomali / total) * 100 },
+    { key: "skip", length: (recap.value.monthly.skip / total) * 100 },
+  ].map((segment) => {
+    const current = { ...segment, offset: -offset };
+    offset += segment.length;
+    return current;
+  });
+});
+const printBars = computed(() => {
+  const selected = recap.value.selected;
+  const values = selected || recap.value.monthly;
+  const max = Math.max(values.berhasil || 0, values.anomali || 0, values.skip || 0, 1);
+  return [
+    { key: "berhasil", label: "Scan berhasil", value: values.berhasil || 0, width: ((values.berhasil || 0) / max) * 100 },
+    { key: "anomali", label: "Anomali", value: values.anomali || 0, width: ((values.anomali || 0) / max) * 100 },
+    { key: "skip", label: "Skip scan", value: values.skip || 0, width: ((values.skip || 0) / max) * 100 },
+  ];
+});
+const printLeaders = computed(() => [
+  { key: "berhasil", label: "Scan berhasil terbanyak", name: recap.value.leaders?.berhasil?.name || "Belum ada data", value: recap.value.leaders?.berhasil?.berhasil || 0 },
+  { key: "anomali", label: "Anomali terbanyak", name: recap.value.leaders?.anomali?.name || "Belum ada data", value: recap.value.leaders?.anomali?.anomali || 0 },
+  { key: "skip", label: "Skip scan terbanyak", name: recap.value.leaders?.skip?.name || "Belum ada data", value: recap.value.leaders?.skip?.skip || 0 },
+]);
+
+const fetchRecap = async () => {
+  recapLoading.value = true;
+  recapError.value = "";
+  try {
+    const params = { bulan: recapFilters.value.bulan, tahun: recapFilters.value.tahun };
+    if (recapFilters.value.satpam_id) params.satpam_id = recapFilters.value.satpam_id;
+    const response = await axios.get("https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/recap", {
+      params,
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}`, Accept: "application/json" },
+    });
+    recap.value = response.data;
+  } catch (err) {
+    recapError.value = err.response?.data?.message || "Gagal mengambil data recap.";
+  } finally {
+    recapLoading.value = false;
+  }
+};
+
+const printRecap = async () => {
+  if (recapLoading.value) return;
+  if (!recap.value.period?.label) await fetchRecap();
+  window.print();
+};
+
+// =====================================================
 // PAGINATION
 // =====================================================
 const currentPage = ref(1);
@@ -771,6 +893,7 @@ onMounted(() => {
   loadUser();
 
   fetchReports();
+  fetchRecap();
 });
 </script>
 
@@ -2356,6 +2479,129 @@ tbody tr:last-child td {
 /* =====================================================
    RESPONSIVE
 ===================================================== */
+
+.recap-controls {
+  margin-bottom: 24px;
+}
+
+.recap-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr;
+  gap: 16px;
+  padding: 22px 24px 14px;
+}
+
+.recap-filter-grid select,
+.recap-filter-grid input {
+  width: 100%;
+  height: 43px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fafbfc;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.print-recap-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 15px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.print-recap-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.recap-screen-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  padding: 0 24px 20px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.recap-screen-summary span:not(.recap-note) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recap-screen-summary strong {
+  color: var(--primary);
+}
+
+.summary-dot,
+.print-legend i {
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+  border-radius: 50%;
+}
+
+.green-dot { background: #2f9e63; }
+.red-dot { background: #d63031; }
+.purple-dot { background: #7c3aed; }
+.recap-note { margin-left: auto; color: #a0a3ae; font-style: italic; }
+.recap-error { margin: 0 24px 16px; color: var(--danger); font-size: 11px; }
+.print-recap { display: none; }
+
+@media print {
+  @page { size: A4 portrait; margin: 14mm; }
+  body { background: #fff !important; }
+  .supervisor-layout { display: block; min-height: auto; background: #fff; }
+  .sidebar, .topbar, .page-header, .statistics-grid, .filter-panel, .recap-controls, .table-panel { display: none !important; }
+  .main-content { width: 100%; margin: 0; }
+  .page-content { padding: 0; }
+  .print-recap { display: block; color: #1f2454; font-family: Arial, sans-serif; }
+  .print-recap-heading { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 2px solid #1f2454; padding-bottom: 13px; }
+  .print-recap-heading span { color: #e87500; font-size: 9px; font-weight: 700; letter-spacing: .15em; }
+  .print-recap-heading h2 { margin: 5px 0; font-size: 22px; }
+  .print-recap-heading p { margin: 0; color: #6f7380; font-size: 11px; }
+  .print-recap-heading > strong { font-size: 15px; letter-spacing: .08em; }
+  .print-recap-meta { display: flex; justify-content: space-between; gap: 20px; padding: 14px 0; color: #6f7380; font-size: 10px; }
+  .print-recap-meta b { color: #1f2454; }
+  .print-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-bottom: 21px; }
+  .print-summary-grid > div { padding: 12px; border: 1px solid #dfe2e8; border-top: 3px solid #e87500; }
+  .print-summary-grid small { display: block; color: #6f7380; font-size: 9px; }
+  .print-summary-grid strong { display: block; margin-top: 7px; font-size: 20px; }
+  .print-chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; margin-bottom: 22px; }
+  .print-chart-block { min-height: 218px; padding: 15px; border: 1px solid #dfe2e8; }
+  .print-chart-block h3, .print-leader-table h3 { margin: 0 0 14px; font-size: 13px; }
+  .print-donut-layout { display: flex; align-items: center; justify-content: center; gap: 17px; padding: 8px 0; }
+  .print-donut { width: 132px; height: 132px; transform: rotate(-90deg); }
+  .donut-bg, .donut-segment { fill: none; stroke-width: 4; }
+  .donut-bg { stroke: #eceef2; }
+  .donut-segment { stroke-linecap: butt; }
+  .donut-segment.berhasil, .print-bar-track i.berhasil { stroke: #2f9e63; background: #2f9e63; }
+  .donut-segment.anomali, .print-bar-track i.anomali { stroke: #d63031; background: #d63031; }
+  .donut-segment.skip, .print-bar-track i.skip { stroke: #7c3aed; background: #7c3aed; }
+  .print-legend { display: flex; flex-direction: column; gap: 10px; font-size: 10px; }
+  .print-legend span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .print-legend b { margin-left: 3px; }
+  .print-bars { padding-top: 18px; }
+  .print-bar-row { margin-bottom: 20px; }
+  .print-bar-row > div:first-child { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; }
+  .print-bar-track { height: 14px; overflow: hidden; border-radius: 7px; background: #eceef2; }
+  .print-bar-track i { display: block; height: 100%; min-width: 2px; border-radius: 7px; }
+  .print-leader-table table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  .print-leader-table th, .print-leader-table td { padding: 8px 10px; border: 1px solid #dfe2e8; text-align: left; }
+  .print-leader-table th { background: #f3f4f6; font-weight: 700; }
+}
 
 @media (max-width: 1150px) {
   .statistics-grid {

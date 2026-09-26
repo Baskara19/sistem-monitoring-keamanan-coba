@@ -73,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::get('/dashboard', [SupervisorController::class, 'dashboard']);
         Route::get('/monitoring', [SupervisorController::class, 'monitoring']);
+        Route::get('/recap', [SupervisorController::class, 'recap']);
 
         // Kelola jadwal
         Route::get('/schedules', [SupervisorController::class, 'scheduleIndex']);
@@ -94,4 +95,3 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 });
-

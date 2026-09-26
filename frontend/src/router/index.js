@@ -209,10 +209,12 @@ const router = createRouter({
     {
       path: "/supervisor/reports",
       component: ReportsView,
+      meta: { requiresAuth: true, role: "supervisor" },
     },
     {
       path: "/supervisor/reports/:id",
       component: ReportDetailView,
+      meta: { requiresAuth: true, role: "supervisor" },
     },
 
     // =========================

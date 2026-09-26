@@ -378,6 +378,85 @@ class SupervisorController extends Controller
     }
 
     /**
+     * Recap scan patroli per bulan, dengan opsi fokus ke satu satpam.
+     * GET /api/supervisor/recap?bulan=9&tahun=2026&satpam_id=12
+     */
+    public function recap(Request $request)
+    {
+        $locationId = $this->supervisorLocationId($request);
+
+        if (! $locationId) {
+            return response()->json(['message' => 'Lokasi supervisor belum ditentukan.'], 403);
+        }
+
+        $request->validate([
+            'bulan' => ['nullable', 'integer', 'min:1', 'max:12'],
+            'tahun' => ['nullable', 'integer', 'min:2020', 'max:2100'],
+            'satpam_id' => ['nullable', 'integer'],
+        ]);
+
+        $month = (int) ($request->input('bulan') ?: now()->month);
+        $year = (int) ($request->input('tahun') ?: now()->year);
+        $start = Carbon::create($year, $month, 1)->startOfMonth();
+        $end = $start->copy()->endOfMonth();
+
+        $satpams = Satpam::with('user:id,name,location_id')
+            ->where('status', 'aktif')
+            ->whereHas('user', fn ($query) => $query->where('location_id', $locationId))
+            ->orderBy('id')
+            ->get();
+
+        $logs = PatrolLog::query()
+            ->whereHas('satpam.user', fn ($query) => $query->where('location_id', $locationId))
+            ->whereBetween('scan_time', [$start, $end])
+            ->get(['satpam_id', 'scan_status', 'scan_time']);
+
+        $countsFor = function ($satpamLogs) {
+            return [
+                'berhasil' => $satpamLogs->where('scan_status', 'berhasil')->count(),
+                'anomali' => $satpamLogs->where('scan_status', 'anomali')->count(),
+                'skip' => $satpamLogs->where('scan_status', 'skip')->count(),
+                'lainnya' => $satpamLogs->whereNotIn('scan_status', ['berhasil', 'anomali', 'skip'])->count(),
+                'total' => $satpamLogs->count(),
+            ];
+        };
+
+        $bySatpam = $satpams->map(function (Satpam $satpam) use ($logs, $countsFor) {
+            $counts = $countsFor($logs->where('satpam_id', $satpam->id));
+
+            return [
+                'id' => $satpam->id,
+                'name' => $satpam->user?->name ?? '-',
+                ...$counts,
+            ];
+        })->values();
+
+        $selectedId = $request->filled('satpam_id') ? (int) $request->input('satpam_id') : null;
+        $selected = $selectedId ? $bySatpam->firstWhere('id', $selectedId) : null;
+
+        $monthly = $countsFor($logs);
+        $leader = fn ($key) => $bySatpam
+            ->sortByDesc($key)
+            ->first(fn ($row) => $row[$key] > 0) ?: null;
+
+        return response()->json([
+            'period' => [
+                'bulan' => $month,
+                'tahun' => $year,
+                'label' => $start->translatedFormat('F Y'),
+            ],
+            'monthly' => $monthly,
+            'leaders' => [
+                'berhasil' => $leader('berhasil'),
+                'anomali' => $leader('anomali'),
+                'skip' => $leader('skip'),
+            ],
+            'satpams' => $bySatpam,
+            'selected' => $selected,
+        ]);
+    }
+
+    /**
      * Ambil data Supervisor dari user yang sedang login.
      */
     private function currentSupervisor(Request $request)
