@@ -141,9 +141,9 @@
             <div class="stat-icon stat-purple">↪</div>
 
             <div class="stat-content">
-              <span>Skip Scan</span>
-              <strong>{{ statistics.skip_reports }}</strong>
-              <small>Patroli yang dilewati</small>
+              <span>Jumlah Satpam</span>
+              <strong>{{ statistics.total_satpam }}</strong>
+              <small>Satpam di wilayah supervisor</small>
             </div>
           </div>
 
@@ -152,9 +152,6 @@
             <div class="stat-icon stat-red">⚠</div>
 
             <div class="stat-content">
-              <span>Anomali</span>
-              <strong>{{ statistics.anomaly_reports }}</strong>
-              <small>Aktivitas tidak normal</small>
             </div>
           </div>
         </div>
@@ -713,9 +710,7 @@ const statistics = ref({
 
   pending_reports: 0,
 
-  skip_reports: 0,
-
-  anomaly_reports: 0,
+  total_satpam: 0,
 });
 
 // =====================================================
@@ -813,8 +808,7 @@ const fetchReports = async () => {
     statistics.value = response.data.statistics || {
       total_reports: 0,
       pending_reports: 0,
-      skip_reports: 0,
-      anomaly_reports: 0,
+      total_satpam: 0,
     };
 
     // Kembali ke halaman pertama setelah data/filter berubah
@@ -985,6 +979,14 @@ onMounted(() => {
   color: var(--text-primary);
 
   font-family: "Segoe UI", Arial, sans-serif;
+}
+
+.statistics-grid .stat-card:nth-child(4) {
+  display: none;
+}
+
+.statistics-grid {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 /* =====================================================

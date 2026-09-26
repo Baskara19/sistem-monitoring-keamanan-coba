@@ -1015,14 +1015,19 @@ public function reports(Request $request)
         ->where('scan_status', 'anomali')
         ->count();
 
+    $totalSatpam = Satpam::query()
+        ->whereHas('user', function ($q) use ($locationId) {
+            $q->where('location_id', $locationId);
+        })
+        ->count();
+
     return response()->json([
         'message' => 'Data laporan berhasil diambil',
 
         'statistics' => [
             'total_reports' => $totalReports,
             'pending_reports' => $pendingReports,
-            'skip_reports' => $skipReports,
-            'anomaly_reports' => $anomalyReports,
+            'total_satpam' => $totalSatpam,
         ],
 
         'total' => $reports->count(),
