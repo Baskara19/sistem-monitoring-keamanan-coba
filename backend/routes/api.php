@@ -11,16 +11,16 @@ use App\Http\Controllers\Api\LocationController;
 use Illuminate\Support\Facades\Route;
 
 
-// Public routes
-Route::post('/login', [AuthController::class, 'login']);
+// Public routes — dibatasi 5 percobaan per menit per IP untuk mencegah brute force
+Route::middleware('throttle:5,1')->post('/login', [AuthController::class, 'login']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
 
-    // Admin routes
-    Route::prefix('admin')->group(function () {
+    // Admin routes — hanya user dengan role 'admin' yang boleh akses
+    Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::get('/dashboard', [AdminController::class, 'dashboard']);
         // Master lokasi
         Route::get('/locations', [LocationController::class, 'index']);
@@ -55,8 +55,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/routes/{id}', [AdminController::class, 'destroyRoute']);
     });
 
-    // Satpam routes
-    Route::prefix('satpam')->group(function () {
+    // Satpam routes — hanya user dengan role 'satpam' atau 'katim' yang boleh akses
+    Route::prefix('satpam')->middleware('role:satpam,katim')->group(function () {
         Route::get('/summary', [SatpamController::class, 'summary']);
         Route::get('/patrol-points', [SatpamController::class, 'patrolPoints']);
         Route::get('/skip-options', [SatpamController::class, 'skipOptions']);
@@ -64,12 +64,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/scan', [SatpamController::class, 'scan']);
         Route::post('/reports', [SatpamController::class, 'createReport']);
         Route::get('/history', [SatpamController::class, 'history']);
-        Route::post('/reports', [SatpamController::class, 'createReport']);
         Route::get('/schedule', [SatpamController::class, 'schedule']);
     });
 
-    // Supervisor routes
-     Route::prefix('supervisor')->group(function () {
+    // Supervisor routes — hanya user dengan role 'supervisor' yang boleh akses
+     Route::prefix('supervisor')->middleware('role:supervisor')->group(function () {
 
         Route::get('/dashboard', [SupervisorController::class, 'dashboard']);
         Route::get('/monitoring', [SupervisorController::class, 'monitoring']);

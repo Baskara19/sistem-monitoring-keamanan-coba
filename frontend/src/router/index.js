@@ -119,6 +119,7 @@ const router = createRouter({
       path: "/admin/users/archive",
       name: "ArchivedUsers",
       component: ArchivedUsersView,
+      meta: { requiresAuth: true, role: "admin" },
     },
 
     // =========================
