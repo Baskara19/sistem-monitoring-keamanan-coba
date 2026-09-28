@@ -19,7 +19,8 @@ const dateFrom = ref("");
 const dateTo = ref("");
 
 const currentPage = ref(1);
-const perPage = 10;
+const perPage = ref(10);
+const perPageOptions = [10, 25, 50];
 
 const showModal = ref(false);
 const modalMode = ref("create"); // create | edit
@@ -142,16 +143,45 @@ const selectedRoutePoints = computed(() => {
 |--------------------------------------------------------------------------
 */
 
-const totalPages = computed(() => Math.max(1, Math.ceil(schedules.value.length / perPage)));
+const totalPages = computed(() => Math.max(1, Math.ceil(schedules.value.length / perPage.value)));
 
 const paginatedSchedules = computed(() => {
-  const start = (currentPage.value - 1) * perPage;
-  return schedules.value.slice(start, start + perPage);
+  const start = (currentPage.value - 1) * perPage.value;
+  return schedules.value.slice(start, start + perPage.value);
+});
+
+const paginationFrom = computed(() => {
+  if (schedules.value.length === 0) return 0;
+  return (currentPage.value - 1) * perPage.value + 1;
+});
+
+const paginationTo = computed(() => {
+  return Math.min(currentPage.value * perPage.value, schedules.value.length);
+});
+
+const visiblePages = computed(() => {
+  const total = totalPages.value;
+  const current = currentPage.value;
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, "...", total];
+  }
+  if (current >= total - 3) {
+    return [1, "...", total - 4, total - 3, total - 2, total - 1, total];
+  }
+  return [1, "...", current - 1, current, current + 1, "...", total];
 });
 
 const goToPage = (page) => {
+  if (typeof page !== "number") return;
   if (page < 1 || page > totalPages.value) return;
   currentPage.value = page;
+};
+
+const handlePerPageChange = () => {
+  currentPage.value = 1;
 };
 
 const applyFilter = () => {
@@ -620,20 +650,70 @@ onMounted(() => {
           </table>
           </div>
 
-          <!-- PAGINATION -->
-          <div v-if="schedules.length > perPage" class="pagination">
-            <button :disabled="currentPage === 1" @click="goToPage(currentPage - 1)">‹</button>
+          <!-- PAGINATION FOOTER -->
+          <div v-if="schedules.length > 0" class="table-pagination-footer">
+            <div class="pagination-meta">
+              <span class="pagination-info">
+                Menampilkan <strong>{{ paginationFrom }}–{{ paginationTo }}</strong> dari <strong>{{ schedules.length }}</strong> jadwal
+              </span>
 
-            <button
-              v-for="page in totalPages"
-              :key="page"
-              :class="{ active: page === currentPage }"
-              @click="goToPage(page)"
-            >
-              {{ page }}
-            </button>
+              <div class="per-page-selector">
+                <label for="schedule-per-page">Per halaman:</label>
+                <select id="schedule-per-page" v-model="perPage" @change="handlePerPageChange">
+                  <option v-for="opt in perPageOptions" :key="opt" :value="opt">{{ opt }}</option>
+                </select>
+              </div>
+            </div>
 
-            <button :disabled="currentPage === totalPages" @click="goToPage(currentPage + 1)">›</button>
+            <div v-if="totalPages > 1" class="pagination-controls">
+              <button
+                class="page-nav-btn"
+                :disabled="currentPage === 1"
+                title="Halaman Pertama"
+                @click="goToPage(1)"
+              >
+                «
+              </button>
+
+              <button
+                class="page-nav-btn"
+                :disabled="currentPage === 1"
+                title="Halaman Sebelumnya"
+                @click="goToPage(currentPage - 1)"
+              >
+                ‹
+              </button>
+
+              <template v-for="(p, index) in visiblePages" :key="index">
+                <span v-if="p === '...'" class="page-ellipsis">…</span>
+                <button
+                  v-else
+                  class="page-number-btn"
+                  :class="{ active: p === currentPage }"
+                  @click="goToPage(p)"
+                >
+                  {{ p }}
+                </button>
+              </template>
+
+              <button
+                class="page-nav-btn"
+                :disabled="currentPage === totalPages"
+                title="Halaman Selanjutnya"
+                @click="goToPage(currentPage + 1)"
+              >
+                ›
+              </button>
+
+              <button
+                class="page-nav-btn"
+                :disabled="currentPage === totalPages"
+                title="Halaman Terakhir"
+                @click="goToPage(totalPages)"
+              >
+                »
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -1353,38 +1433,131 @@ td {
   background: rgba(214, 48, 49, 0.1);
 }
 
-/* PAGINATION */
-.pagination {
+/* =====================================================
+   PAGINATION FOOTER (CLEAN & MODERN)
+===================================================== */
+.table-pagination-footer {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 18px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 24px;
   border-top: 1px solid var(--border);
+  background: var(--white);
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
 }
 
-.pagination button {
-  min-width: 34px;
-  height: 34px;
+.pagination-meta {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.pagination-info strong {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.per-page-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.per-page-selector select {
+  height: 32px;
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--white);
-  color: var(--text-primary);
+  background: #fbfcfd;
+  color: var(--primary);
   font-size: 12px;
   font-weight: 600;
+  outline: none;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
-.pagination button.active {
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  color: white;
-  border-color: transparent;
+.per-page-selector select:focus {
+  border-color: var(--accent);
 }
 
-.pagination button:disabled {
-  opacity: 0.4;
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-nav-btn,
+.page-number-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid #e2e4ea;
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.page-nav-btn:hover:not(:disabled),
+.page-number-btn:hover:not(.active) {
+  background: #f4f6fa;
+  border-color: #cbd2e0;
+  color: var(--primary);
+}
+
+.page-number-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  box-shadow: 0 4px 10px rgba(31, 36, 84, 0.2);
+}
+
+.page-nav-btn:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
+  background: #fbfcfd;
+}
+
+.page-ellipsis {
+  padding: 0 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  user-select: none;
+}
+
+@media (max-width: 768px) {
+  .table-pagination-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .pagination-meta {
+    justify-content: space-between;
+  }
+
+  .pagination-controls {
+    justify-content: center;
+  }
 }
 
 /* MODAL */
