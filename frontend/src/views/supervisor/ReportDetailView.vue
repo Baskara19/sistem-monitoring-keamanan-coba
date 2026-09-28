@@ -195,6 +195,14 @@
                     </strong>
                   </div>
 
+                  <div class="info-row" v-if="report.patrol_round">
+                    <span>Putaran</span>
+
+                    <strong>
+                      Putaran {{ report.patrol_round }}
+                    </strong>
+                  </div>
+
                   <div class="info-row">
                     <span>Waktu</span>
 
@@ -430,53 +438,108 @@
               <div class="timeline-section">
                 <div class="section-title">
                   <h3>Timeline Patroli</h3>
-                  <p>Urutan perjalanan patroli berdasarkan rute yang dijadwalkan</p>
+                  <p>Urutan perjalanan patroli berdasarkan rute dan putaran shift</p>
                 </div>
 
-                <div v-if="report?.patrol_timeline?.length" class="patrol-timeline">
-                  <div
-                    v-for="(item, index) in report.patrol_timeline"
-                    :key="item.schedule_detail_id"
-                    class="timeline-item"
-                  >
-                    <!-- Nomor titik -->
-                    <div class="timeline-marker">
-                      <span>{{ index + 1 }}</span>
-                    </div>
-
-                    <!-- Garis penghubung -->
+                <div v-if="report?.patrol_timeline?.length" class="patrol-timeline-container">
+                  <!-- FORMAT 4 PUTARAN (ROUND-GROUPED) -->
+                  <template v-if="report.patrol_timeline[0]?.points">
                     <div
-                      v-if="index < report.patrol_timeline.length - 1"
-                      class="timeline-line"
-                    ></div>
+                      v-for="roundGroup in report.patrol_timeline"
+                      :key="roundGroup.round"
+                      class="round-timeline-group"
+                    >
+                      <div class="round-group-header">
+                        <span class="round-group-badge">Putaran {{ roundGroup.round }}</span>
+                        <span class="round-group-time">Target: {{ roundGroup.target_time }}</span>
+                      </div>
 
-                    <!-- Isi -->
-                    <div class="timeline-content">
-                      <div class="timeline-point-header">
-                        <div>
-                          <h4>{{ item.patrol_point_name }}</h4>
+                      <div class="patrol-timeline">
+                        <div
+                          v-for="(item, index) in roundGroup.points"
+                          :key="item.schedule_detail_id || index"
+                          class="timeline-item"
+                        >
+                          <div class="timeline-marker">
+                            <span>{{ item.sequence_order || index + 1 }}</span>
+                          </div>
 
-                          <span class="timeline-sequence"> Titik {{ index + 1 }} </span>
+                          <div
+                            v-if="index < roundGroup.points.length - 1"
+                            class="timeline-line"
+                          ></div>
+
+                          <div class="timeline-content">
+                            <div class="timeline-point-header">
+                              <div>
+                                <h4>{{ item.patrol_point_name }}</h4>
+                                <span class="timeline-sequence">Titik {{ item.sequence_order || index + 1 }}</span>
+                              </div>
+
+                              <span class="timeline-status" :class="getStatusClass(item.status)">
+                                {{ formatStatus(item.status) }}
+                              </span>
+                            </div>
+
+                            <div class="timeline-time">
+                              <span v-if="item.scan_time">
+                                {{ formatTimelineTime(item.scan_time) }}
+                              </span>
+                              <span v-else class="not-done"> Belum dilakukan </span>
+                            </div>
+
+                            <p v-if="item.note" class="timeline-note">
+                              {{ item.note }}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- FALLBACK FORMAT FLAT (LEGACY) -->
+                  <template v-else>
+                    <div class="patrol-timeline">
+                      <div
+                        v-for="(item, index) in report.patrol_timeline"
+                        :key="item.schedule_detail_id"
+                        class="timeline-item"
+                      >
+                        <div class="timeline-marker">
+                          <span>{{ index + 1 }}</span>
                         </div>
 
-                        <span class="timeline-status" :class="getStatusClass(item.status)">
-                          {{ formatStatus(item.status) }}
-                        </span>
+                        <div
+                          v-if="index < report.patrol_timeline.length - 1"
+                          class="timeline-line"
+                        ></div>
+
+                        <div class="timeline-content">
+                          <div class="timeline-point-header">
+                            <div>
+                              <h4>{{ item.patrol_point_name }}</h4>
+                              <span class="timeline-sequence"> Titik {{ index + 1 }} </span>
+                            </div>
+
+                            <span class="timeline-status" :class="getStatusClass(item.status)">
+                              {{ formatStatus(item.status) }}
+                            </span>
+                          </div>
+
+                          <div class="timeline-time">
+                            <span v-if="item.scan_time">
+                              {{ formatTimelineTime(item.scan_time) }}
+                            </span>
+                            <span v-else class="not-done"> Belum dilakukan </span>
+                          </div>
+
+                          <p v-if="item.note" class="timeline-note">
+                            {{ item.note }}
+                          </p>
+                        </div>
                       </div>
-
-                      <div class="timeline-time">
-                        <span v-if="item.scan_time">
-                          {{ formatTimelineTime(item.scan_time) }}
-                        </span>
-
-                        <span v-else class="not-done"> Belum dilakukan </span>
-                      </div>
-
-                      <p v-if="item.note" class="timeline-note">
-                        {{ item.note }}
-                      </p>
                     </div>
-                  </div>
+                  </template>
                 </div>
 
                 <div v-else class="empty-timeline">
@@ -1939,6 +2002,41 @@ onMounted(() => {
   color: var(--text-secondary);
   font-size: 10px;
   line-height: 1.5;
+}
+
+/* ROUND GROUPS */
+
+.round-timeline-group {
+  margin-bottom: 20px;
+  background: #fbfcfd;
+  border: 1px solid #e9ecf2;
+  border-radius: 12px;
+  padding: 14px 16px 8px;
+}
+
+.round-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.round-group-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--primary, #1f2454);
+  background: rgba(31, 36, 84, 0.08);
+  padding: 4px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+
+.round-group-time {
+  font-size: 11px;
+  color: var(--text-secondary, #6f7380);
+  font-weight: 600;
 }
 
 /* TIMELINE CONTAINER */

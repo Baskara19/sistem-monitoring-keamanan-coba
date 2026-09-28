@@ -17,7 +17,12 @@ class PatrolLog extends Model
         'longitude',
         'distance_from_point',
         'scan_status',
+        'patrol_round',  // Putaran ke-berapa dalam shift (1–4)
         'note',
+    ];
+
+    protected $casts = [
+        'patrol_round' => 'integer',
     ];
 
     // Relasi ke satpam

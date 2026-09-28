@@ -53,7 +53,7 @@
       </div>
 
       <!-- Empty -->
-      <div v-else-if="scheduleDetails.length === 0" class="state-card">
+      <div v-else-if="!hasSchedule" class="state-card">
         <div class="state-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -90,32 +90,49 @@
           </div>
         </section>
 
+        <!-- Round Tabs Selector (4 Putaran) -->
+        <section v-if="isGroupedRound" class="round-tabs-section">
+          <div class="round-tabs">
+            <button
+              v-for="(r, idx) in rounds"
+              :key="r.round"
+              type="button"
+              class="round-tab-btn"
+              :class="{ active: activeRoundIndex === idx }"
+              @click="activeRoundIndex = idx"
+            >
+              <span class="tab-round-title">Putaran {{ r.round }}</span>
+              <span class="tab-round-time">{{ r.target_time }}</span>
+            </button>
+          </div>
+        </section>
+
         <!-- Patrol Points -->
         <section class="section">
           <div class="section-heading">
             <div>
-              <h2>Rute Patroli</h2>
-              <p>{{ scheduleDetails.length }} titik patroli</p>
+              <h2>{{ isGroupedRound ? `Putaran ${currentRoundData?.round} — Target ${currentRoundData?.target_time}` : "Rute Patroli" }}</h2>
+              <p>{{ displayedPoints.length }} titik patroli</p>
             </div>
           </div>
 
           <div class="timeline">
             <div
-              v-for="(detail, index) in scheduleDetails"
-              :key="detail.id"
+              v-for="(point, index) in displayedPoints"
+              :key="point.schedule_detail_id || point.id || index"
               class="timeline-item"
             >
               <!-- Timeline -->
               <div class="timeline-left">
                 <div
                   class="sequence"
-                  :class="{ last: index === scheduleDetails.length - 1 }"
+                  :class="{ last: index === displayedPoints.length - 1 }"
                 >
-                  {{ detail.sequence_order ?? index + 1 }}
+                  {{ point.sequence_order ?? index + 1 }}
                 </div>
 
                 <div
-                  v-if="index !== scheduleDetails.length - 1"
+                  v-if="index !== displayedPoints.length - 1"
                   class="timeline-line"
                 ></div>
               </div>
@@ -132,43 +149,50 @@
 
                   <div class="patrol-info">
                     <span class="point-label">
-                      Titik {{ detail.sequence_order ?? index + 1 }}
+                      Titik {{ point.sequence_order ?? index + 1 }}
                     </span>
 
                     <h3>
-                      {{ detail.patrol_point?.name ?? "Titik Patroli" }}
+                      {{ point.patrol_point_name || point.patrol_point?.name || "Titik Patroli" }}
                     </h3>
                   </div>
 
                   <span
-                    v-if="detail.scan_status_label"
+                    v-if="point.scan_status_label"
                     class="status-badge"
-                    :class="getStatusClass(detail.scan_status)"
+                    :class="getStatusClass(point.scan_status)"
                   >
-                    {{ detail.scan_status_label }}
+                    {{ point.scan_status_label }}
+                  </span>
+                  <span
+                    v-else
+                    class="status-badge default"
+                  >
+                    Belum Scan
                   </span>
                 </div>
 
-                <div class="patrol-address" v-if="detail.patrol_point?.location_address">
+                <div class="patrol-address" v-if="point.location_address || point.patrol_point?.location_address">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
                     <path d="M12 21s7-6.1 7-12a7 7 0 1 0-14 0c0 5.9 7 12 7 12Z" />
                     <circle cx="12" cy="9" r="2.5" />
                   </svg>
 
-                  <span>{{ detail.patrol_point.location_address }}</span>
+                  <span>{{ point.location_address || point.patrol_point?.location_address }}</span>
                 </div>
 
                 <div class="time-row">
                   <div class="time-item">
-                    <span>Mulai</span>
-                    <strong>{{ formatTime(detail.shift_start) }}</strong>
+                    <span>Target Waktu</span>
+                    <strong>{{ isGroupedRound ? (currentRoundData?.target_time || "-") : formatTime(point.shift_start) }}</strong>
                   </div>
 
                   <div class="time-divider"></div>
 
                   <div class="time-item">
-                    <span>Selesai</span>
-                    <strong>{{ formatTime(detail.shift_end) }}</strong>
+                    <span>Waktu Scan</span>
+                    <strong v-if="point.scan_time">{{ formatTime(point.scan_time) }}</strong>
+                    <span v-else class="text-not-scanned">Belum</span>
                   </div>
                 </div>
               </div>
@@ -256,6 +280,9 @@ const router = useRouter();
 const loading = ref(true);
 const error = ref("");
 const scheduleDetails = ref([]);
+const rounds = ref([]);
+const activeRoundIndex = ref(0);
+const shiftInfo = ref(null);
 
 const toDateInputValue = (date) => {
   const year = date.getFullYear();
@@ -305,7 +332,18 @@ const fetchSchedule = async () => {
       },
     );
 
+    rounds.value = response.data.rounds ?? [];
+    shiftInfo.value = {
+      label: response.data.shift_label,
+      start: response.data.shift_start,
+      end: response.data.shift_end,
+    };
     scheduleDetails.value = response.data.schedule ?? [];
+
+    // Reset active round index jika di luar jangkauan
+    if (activeRoundIndex.value >= rounds.value.length) {
+      activeRoundIndex.value = 0;
+    }
   } catch (err) {
     console.error("Gagal mengambil jadwal:", err);
 
@@ -342,9 +380,29 @@ const currentDate = computed(() => {
 
 const isToday = computed(() => selectedDate.value === todayValue);
 
-const scheduleTitle = computed(() => {
-  const first = scheduleDetails.value[0];
+const isGroupedRound = computed(() => rounds.value.length > 0);
 
+const hasSchedule = computed(() => {
+  return rounds.value.length > 0 || scheduleDetails.value.length > 0;
+});
+
+const currentRoundData = computed(() => {
+  if (rounds.value.length === 0) return null;
+  return rounds.value[activeRoundIndex.value] || rounds.value[0];
+});
+
+const displayedPoints = computed(() => {
+  if (currentRoundData.value?.points?.length) {
+    return currentRoundData.value.points;
+  }
+  return scheduleDetails.value;
+});
+
+const scheduleTitle = computed(() => {
+  if (shiftInfo.value?.label) {
+    return `Shift ${shiftInfo.value.label} (${shiftInfo.value.start || ""} - ${shiftInfo.value.end || ""})`;
+  }
+  const first = scheduleDetails.value[0];
   return first?.schedule?.title ?? "";
 });
 
@@ -644,11 +702,73 @@ onMounted(() => {
 }
 
 /* =========================================
+   ROUND TABS (4 PUTARAN)
+========================================= */
+
+.round-tabs-section {
+  margin-top: 18px;
+}
+
+.round-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.round-tab-btn {
+  background: #ffffff;
+  border: 1.5px solid #d9dce8;
+  border-radius: 12px;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.round-tab-btn:hover {
+  border-color: #1f2454;
+}
+
+.round-tab-btn.active {
+  background: #1f2454;
+  border-color: #1f2454;
+  box-shadow: 0 4px 12px rgba(31, 36, 84, 0.25);
+}
+
+.tab-round-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1f2454;
+}
+
+.round-tab-btn.active .tab-round-title {
+  color: #ffffff;
+}
+
+.tab-round-time {
+  font-size: 10px;
+  font-weight: 600;
+  color: #e87500;
+}
+
+.round-tab-btn.active .tab-round-time {
+  color: #ffaa5b;
+}
+
+.text-not-scanned {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+/* =========================================
    SECTION
 ========================================= */
 
 .section {
-  margin-top: 26px;
+  margin-top: 22px;
 }
 
 .section-heading {

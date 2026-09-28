@@ -470,9 +470,15 @@
                       <div class="point-cell">
                         <span class="point-icon">◉</span>
 
-                        <span class="point-name">
-                          {{ report.patrol_point || "-" }}
-                        </span>
+                        <div class="point-info">
+                          <span class="point-name">
+                            {{ report.patrol_point || "-" }}
+                          </span>
+
+                          <small v-if="report.patrol_round" class="round-badge-small" style="display: block; color: #e87500; font-size: 10px; font-weight: 600;">
+                            Putaran {{ report.patrol_round }}
+                          </small>
+                        </div>
                       </div>
                     </td>
 

@@ -15,6 +15,7 @@ use App\Models\Supervisor;
 use App\Models\SkipReason;
 use App\Models\User;
 use Carbon\Carbon;
+use App\Services\PatrolRoundService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
@@ -68,12 +69,18 @@ class SupervisorController extends Controller
             ->orderBy('sequence_order')
             ->get();
 
+        // Ambil log yang terkait dengan schedule detail aktif hari ini.
+        // Pakai schedule_detail_id (bukan whereDate) agar log dari shift Malam
+        // (putaran 00:00-06:00) tetap masuk meski tanggal scan sudah besok.
+        $activeDetailIds = $activeDetails->pluck('id');
+
         $todayLogs = PatrolLog::query()
             ->with('patrolPoint:id,name')
             ->whereHas('satpam.user', function ($query) use ($locationId) {
         $query->where('location_id', $locationId);
     })
-            ->whereDate('scan_time', $today)
+            ->whereIn('schedule_detail_id', $activeDetailIds)
+            ->where('scan_time', '>=', now()->subHours(30))
             ->orderByDesc('scan_time')
             ->get();
 
@@ -138,6 +145,8 @@ class SupervisorController extends Controller
         // DATA PATROLI HARI INI
         // =====================================================
 
+        // Ambil log patroli hari ini, termasuk log dari shift Malam overnight.
+        // Window 30 jam cukup untuk menangkap semua putaran shift Malam (22:00-06:00).
         $patrolLogs = PatrolLog::with([
             'satpam.user',
             'patrolPoint',
@@ -148,7 +157,7 @@ class SupervisorController extends Controller
          ->whereHas('satpam.user', function ($query) use ($locationId) {
         $query->where('location_id', $locationId);
     })
-            ->whereDate('scan_time', $today)
+            ->where('scan_time', '>=', now()->subHours(30))
             ->orderBy('scan_time', 'desc')
             ->get();
 
@@ -421,7 +430,7 @@ class SupervisorController extends Controller
                   ->whereDate('start_date', '<=', $end)
                   ->whereDate('end_date', '>=', $start);
             })
-            ->selectRaw('satpam_id, COUNT(*) as total_scheduled')
+            ->selectRaw('satpam_id, COUNT(*) * 4 as total_scheduled')
             ->groupBy('satpam_id')
             ->pluck('total_scheduled', 'satpam_id');
 
@@ -916,44 +925,48 @@ public function reports(Request $request)
         $scheduleLogs = collect();
 
         if ($currentDetail?->schedule_id) {
+            // Kelompokkan berdasarkan (schedule_detail_id, patrol_round) agar
+            // timeline bisa ditampilkan per putaran, bukan flat per titik.
             $scheduleLogs = PatrolLog::whereHas('scheduleDetail', function ($query) use ($currentDetail) {
                 $query->where('schedule_id', $currentDetail->schedule_id);
             })
                 ->orderBy('scan_time')
                 ->get()
-                ->groupBy('schedule_detail_id');
+                ->groupBy(fn ($l) => $l->schedule_detail_id . '-' . ($l->patrol_round ?? 0));
         }
 
-        /*
-         * Bentuk timeline berdasarkan urutan schedule detail.
-         */
-        $patrolTimeline = $scheduleDetails
-            ->map(function ($detail) use ($scheduleLogs) {
+        // Patrol timeline dibangun per putaran (Round 1-4), bukan flat per titik.
+        // Frontend dapat membedakan status tiap titik di masing-masing putaran.
+        $shiftLabel   = $currentDetail?->shift_label ?? 'Pagi';
+        $roundService = new PatrolRoundService();
+        $roundTimes   = $roundService->getRoundTimes($shiftLabel);
 
-                $pointLogs = $scheduleLogs->get($detail->id, collect());
+        $patrolTimeline = collect($roundTimes)->map(function ($targetTime, $roundNumber) use ($scheduleDetails, $scheduleLogs) {
+            $points = $scheduleDetails->map(function ($detail) use ($roundNumber, $scheduleLogs) {
+                $key      = $detail->id . '-' . $roundNumber;
+                $pointLogs = $scheduleLogs->get($key, collect());
 
-                /*
-                 * Ambil scan pertama untuk titik tersebut.
-                 */
-                $pointLog = $pointLogs->first();
+                $pointLog = $pointLogs->first(fn ($l) => in_array($l->scan_status, ['berhasil', 'terlambat', 'skip']))
+                    ?? $pointLogs->last();
 
                 return [
                     'schedule_detail_id' => $detail->id,
-
-                    'sequence_order' => $detail->sequence_order,
-
-                    'patrol_point_id' => $detail->patrol_point_id,
-
-                    'patrol_point_name' => $detail->patrolPoint?->name ?? '-',
-
-                    'scan_time' => $pointLog?->scan_time,
-
-                    'status' => $pointLog?->scan_status ?? 'belum',
-
-                    'note' => $pointLog?->note,
+                    'sequence_order'     => $detail->sequence_order,
+                    'patrol_point_id'    => $detail->patrol_point_id,
+                    'patrol_point_name'  => $detail->patrolPoint?->name ?? '-',
+                    'scan_time'          => $pointLog?->scan_time,
+                    'status'             => $pointLog?->scan_status ?? 'belum',
+                    'note'               => $pointLog?->note,
+                    'patrol_log_id'      => $pointLog?->id,
                 ];
-            })
-            ->values();
+            })->values();
+
+            return [
+                'round'       => $roundNumber,
+                'target_time' => $targetTime,
+                'points'      => $points,
+            ];
+        })->values();
 
         return [
             'id' => $log->id,
@@ -963,6 +976,8 @@ public function reports(Request $request)
             'nipkwt' => $log->satpam?->user?->nipkwt ?? '-',
 
             'patrol_point' => $log->patrolPoint?->name ?? '-',
+
+            'patrol_round' => $log->patrol_round,
 
             'scan_time' => $log->scan_time,
 
@@ -977,21 +992,14 @@ public function reports(Request $request)
             'report_description' => $log->report?->description,
 
             'report_photo' => $log->report?->photo,
+
             'review_status' => $log->report?->review_status,
 
-            // SKIP
-'skip_reason' => $log->skipReason?->reason,
-'skip_reason_id' => $log->skipReason?->id,
-'skip_review_status' => $log->skipReason?->review_status,
+            'skip_reason'        => $log->skipReason?->reason,
+            'skip_reason_id'     => $log->skipReason?->id,
+            'skip_review_status' => $log->skipReason?->review_status,
 
-'schedule_id' => $currentDetail?->schedule_id,
-'patrol_timeline' => $patrolTimeline,
-
-            /*
-             * Data yang dipakai Timeline Detail Laporan.
-             */
-            'schedule_id' => $currentDetail?->schedule_id,
-
+            'schedule_id'     => $currentDetail?->schedule_id,
             'patrol_timeline' => $patrolTimeline,
         ];
     })->values();

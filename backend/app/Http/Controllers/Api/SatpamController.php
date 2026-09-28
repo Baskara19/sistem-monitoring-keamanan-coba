@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Models\Schedule;
 use App\Models\ScheduleDetail;
+use App\Services\PatrolRoundService;
 
 class SatpamController extends Controller
 {
@@ -38,7 +39,9 @@ public function summary(Request $request)
 
     /*
     |--------------------------------------------------------------------------
-    | Ambil jadwal patroli aktif hari ini
+    | Ambil jadwal patroli aktif hari ini.
+    | Gunakan subDay() agar shift Malam (22:00–06:00) yang dimulai kemarin
+    | tetap terbaca saat satpam cek summary di dini hari.
     |--------------------------------------------------------------------------
     */
 
@@ -46,82 +49,60 @@ public function summary(Request $request)
         ->whereHas('schedule', function ($query) {
             $query->where('status', 'aktif')
                 ->whereDate('start_date', '<=', today())
-                ->whereDate('end_date', '>=', today());
+                ->whereDate('end_date', '>=', today()->copy()->subDay());
         })
         ->orderBy('sequence_order')
         ->get();
 
     /*
     |--------------------------------------------------------------------------
-    | Total titik patroli yang dijadwalkan
+    | Total target = jumlah titik × 4 putaran
     |--------------------------------------------------------------------------
     */
 
-    $scheduled = $scheduleDetails->count();
+    $scheduled = $scheduleDetails->count() * 4;
 
     /*
     |--------------------------------------------------------------------------
-    | Ambil log patroli hari ini
+    | Ambil semua log yang berasal dari jadwal di atas.
+    | Tidak lagi filter by date — patrol_round sudah jadi identitas putaran.
     |--------------------------------------------------------------------------
     */
 
-    $todayLogs = PatrolLog::where('satpam_id', $satpam->id)
-        ->whereDate('scan_time', today())
+    $scheduleDetailIds = $scheduleDetails->pluck('id');
+
+    $logs = PatrolLog::where('satpam_id', $satpam->id)
+        ->whereIn('schedule_detail_id', $scheduleDetailIds)
+        ->whereNotNull('patrol_round')
         ->get();
 
     /*
     |--------------------------------------------------------------------------
-    | Hitung status
-    |--------------------------------------------------------------------------
-    */
-
-   $completed = $todayLogs
-    ->whereIn('scan_status', [
-        'berhasil',
-        'terlambat',
-        'terlewat',
-        'skip',
-        'anomali',
-    ])
-    ->whereNotNull('schedule_detail_id')
-    ->pluck('schedule_detail_id')
-    ->unique()
-    ->count();
-
-    $skip = $todayLogs
-        ->where('scan_status', 'skip')
-        ->count();
-
-    $anomaly = $todayLogs
-        ->where('scan_status', 'anomali')
-        ->count();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Titik yang sudah disentuh / diproses
+    | Hitung status berdasarkan pasangan unik (schedule_detail_id, patrol_round)
     |
-    | berhasil   -> sudah dilewati
-    | terlambat  -> sudah dilewati
-    | skip       -> sudah diproses
-    | anomali    -> sudah diproses
-    | terlewat   -> sudah dilewati karena melompati titik
+    | completed = berapa pasangan (detail+round) yang sudah punya log apapun
+    | remaining = target yang belum tersentuh sama sekali
     |--------------------------------------------------------------------------
     */
 
-    $processedScheduleDetailIds = $todayLogs
-        ->whereNotNull('schedule_detail_id')
-        ->pluck('schedule_detail_id')
-        ->unique();
+    // Completed: unique kombinasi detail+round yang sudah punya status aktif
+    $completed = $logs
+        ->whereIn('scan_status', ['berhasil', 'terlambat', 'terlewat', 'skip', 'anomali'])
+        ->map(fn ($log) => $log->schedule_detail_id . '-' . $log->patrol_round)
+        ->unique()
+        ->count();
+
+    $skip = $logs->where('scan_status', 'skip')->count();
+
+    $anomaly = $logs->where('scan_status', 'anomali')->count();
 
     /*
     |--------------------------------------------------------------------------
-    | Sisa = titik jadwal yang BELUM memiliki log
+    | Sisa = total target dikurangi yang sudah selesai
     |--------------------------------------------------------------------------
     */
 
-    $remaining = $scheduleDetails
-        ->whereNotIn('id', $processedScheduleDetailIds)
-        ->count();
+    $remaining = max(0, $scheduled - $completed);
 
     return response()->json([
         'scheduled'     => $scheduled,
@@ -276,26 +257,38 @@ public function summary(Request $request)
      *
      * Return: daftar nama titik yang baru saja ditandai terlewat.
      */
-    private function markEarlierCheckpointsAsMissed(Satpam $satpam, ?ScheduleDetail $currentDetail): array
-    {
+    /**
+     * Tandai titik-titik sebelumnya (sequence lebih kecil) dalam PUTARAN YANG SAMA
+     * sebagai 'terlewat' jika satpam sudah melompat ke titik berikutnya.
+     *
+     * PENTING: Hanya cek log pada putaran ($currentRound) yang sama — jangan
+     * sampai log dari putaran 1 mempengaruhi putaran 2.
+     *
+     * @param  int  $currentRound  Putaran aktif saat ini (1–4).
+     */
+    private function markEarlierCheckpointsAsMissed(
+        Satpam $satpam,
+        ?ScheduleDetail $currentDetail,
+        int $currentRound = 1
+    ): array {
         if (! $currentDetail || ! $currentDetail->schedule || $currentDetail->sequence_order <= 1) {
             return [];
         }
 
+        // Ambil semua titik di schedule yang sama dengan urutan lebih kecil.
         $earlierDetails = ScheduleDetail::with('patrolPoint')
             ->where('satpam_id', $satpam->id)
+            ->where('schedule_id', $currentDetail->schedule_id)
             ->where('sequence_order', '<', $currentDetail->sequence_order)
-            ->whereHas('schedule', function ($query) use ($currentDetail) {
-                $query->where('status', 'aktif')
-                    ->where('start_date', $currentDetail->schedule->start_date);
-            })
             ->get();
 
         $missedNames = [];
 
         foreach ($earlierDetails as $earlier) {
+            // Cek apakah titik ini sudah punya log apapun di putaran yang sama.
+            // Beda putaran = sequence baru, tidak dianggap terlewat.
             $alreadyLogged = PatrolLog::where('schedule_detail_id', $earlier->id)
-                ->whereDate('scan_time', today())
+                ->where('patrol_round', $currentRound)
                 ->exists();
 
             if ($alreadyLogged) {
@@ -309,6 +302,7 @@ public function summary(Request $request)
                 'scan_time'          => now(),
                 'latitude'           => $earlier->patrolPoint?->latitude,
                 'longitude'          => $earlier->patrolPoint?->longitude,
+                'patrol_round'       => $currentRound,
                 'scan_status'        => 'terlewat',
                 'note'               => 'Titik dilewati karena satpam sudah scan titik berikutnya terlebih dahulu.',
             ]);
@@ -337,7 +331,9 @@ public function schedule(Request $request)
         ? \Carbon\Carbon::parse($request->input('date'))->startOfDay()
         : today();
 
-    $scheduleDetails = \App\Models\ScheduleDetail::with([
+    // Sertakan shift Malam dari kemarin agar satpam yang bertugas dini hari
+    // tetap bisa melihat jadwal shift-nya.
+    $scheduleDetails = ScheduleDetail::with([
         'schedule:id,title,description,start_date,end_date,status',
         'patrolPoint:id,name,location_address',
     ])
@@ -345,35 +341,105 @@ public function schedule(Request $request)
         ->whereHas('schedule', function ($query) use ($date) {
             $query->where('status', 'aktif')
                 ->whereDate('start_date', '<=', $date)
-                ->whereDate('end_date', '>=', $date);
+                ->whereDate('end_date', '>=', $date->copy()->subDay());
         })
         ->orderBy('sequence_order')
         ->get();
 
-    // Sisipkan status scan (kalau ada) untuk tiap titik pada tanggal yang
-    // dipilih, biar satpam bisa lihat titik mana yang sudah berhasil/skip/dll
-    // langsung dari halaman Jadwal Saya.
-    $logsByPoint = PatrolLog::where('satpam_id', $satpam->id)
-        ->whereDate('scan_time', $date)
-        ->whereIn('patrol_point_id', $scheduleDetails->pluck('patrol_point_id'))
+    if ($scheduleDetails->isEmpty()) {
+        return response()->json([
+            'message' => 'Jadwal patroli berhasil diambil.',
+            'date'    => $date->toDateString(),
+            'rounds'  => [],
+        ]);
+    }
+
+    $firstDetail = $scheduleDetails->first();
+    $shiftLabel  = $firstDetail->shift_label;
+    $shiftStart  = substr($firstDetail->shift_start, 0, 5);
+    $shiftEnd    = substr($firstDetail->shift_end, 0, 5);
+
+    // Ambil semua log dari schedule detail yang berlaku, dikelompokkan
+    // berdasarkan pasangan (schedule_detail_id, patrol_round).
+    $scheduleDetailIds = $scheduleDetails->pluck('id');
+
+    $allLogs = PatrolLog::where('satpam_id', $satpam->id)
+        ->whereIn('schedule_detail_id', $scheduleDetailIds)
         ->orderBy('scan_time')
         ->get()
-        ->groupBy('patrol_point_id');
+        ->groupBy(fn ($log) => $log->schedule_detail_id . '-' . ($log->patrol_round ?? 0));
 
-    $scheduleDetails->each(function (\App\Models\ScheduleDetail $detail) use ($logsByPoint) {
-        $pointLogs = $logsByPoint->get($detail->patrol_point_id, collect());
-        $log = $pointLogs->first(fn ($log) => in_array($log->scan_status, self::FINAL_SCAN_STATUSES))
+    $roundService = new PatrolRoundService();
+    $roundTimes   = $roundService->getRoundTimes($shiftLabel);
+
+    // Bangun response berdasarkan 4 putaran.
+    // Tiap putaran berisi daftar titik beserta status scan untuk putaran itu.
+    $rounds = collect($roundTimes)->map(function ($targetTime, $roundNumber) use (
+        $scheduleDetails, $allLogs
+    ) {
+        $points = $scheduleDetails->map(function (ScheduleDetail $detail) use ($roundNumber, $allLogs) {
+            $key      = $detail->id . '-' . $roundNumber;
+            $pointLogs = $allLogs->get($key, collect());
+
+            // Prioritaskan log final; fallback ke log terakhir (misalnya anomali).
+            $log = $pointLogs->first(fn ($l) => in_array($l->scan_status, self::FINAL_SCAN_STATUSES))
+                ?? $pointLogs->last();
+
+            return [
+                'schedule_detail_id' => $detail->id,
+                'sequence_order'     => $detail->sequence_order,
+                'patrol_point_id'    => $detail->patrol_point_id,
+                'patrol_point_name'  => $detail->patrolPoint?->name ?? '-',
+                'location_address'   => $detail->patrolPoint?->location_address,
+                'scan_status'        => $log?->scan_status,
+                'scan_status_label'  => $log ? $this->scanStatusLabel($log->scan_status) : null,
+                'scan_time'          => $log?->scan_time,
+                'patrol_log_id'      => $log?->id,
+            ];
+        })->values();
+
+        return [
+            'round'       => $roundNumber,
+            'target_time' => $targetTime,
+            'points'      => $points,
+        ];
+    })->values();
+
+    $legacySchedule = $scheduleDetails->map(function (ScheduleDetail $detail) use ($allLogs) {
+        $pointLogs = $allLogs->get($detail->id . '-1', collect());
+        $log = $pointLogs->first(fn ($l) => in_array($l->scan_status, self::FINAL_SCAN_STATUSES))
             ?? $pointLogs->last();
 
-        $detail->scan_status = $log?->scan_status;
-        $detail->scan_status_label = $log ? $this->scanStatusLabel($log->scan_status) : null;
-        $detail->scan_time = $log?->scan_time;
-    });
+        return [
+            'id'                => $detail->id,
+            'schedule_id'       => $detail->schedule_id,
+            'shift_start'       => $detail->shift_start,
+            'shift_end'         => $detail->shift_end,
+            'shift_label'       => $detail->shift_label,
+            'sequence_order'    => $detail->sequence_order,
+            'patrol_point'      => [
+                'id'               => $detail->patrolPoint?->id,
+                'name'             => $detail->patrolPoint?->name,
+                'location_address' => $detail->patrolPoint?->location_address,
+            ],
+            'scan_status'       => $log?->scan_status,
+            'scan_status_label' => $log ? $this->scanStatusLabel($log->scan_status) : null,
+            'scan_time'         => $log?->scan_time,
+            'schedule'          => [
+                'id'    => $detail->schedule?->id,
+                'title' => $detail->schedule?->title,
+            ],
+        ];
+    })->values();
 
     return response()->json([
-        'message' => 'Jadwal patroli berhasil diambil.',
-        'date' => $date->toDateString(),
-        'schedule' => $scheduleDetails,
+        'message'     => 'Jadwal patroli berhasil diambil.',
+        'date'        => $date->toDateString(),
+        'shift_label' => $shiftLabel,
+        'shift_start' => $shiftStart,
+        'shift_end'   => $shiftEnd,
+        'rounds'      => $rounds,
+        'schedule'    => $legacySchedule,
     ]);
 }
 
@@ -429,9 +495,9 @@ public function history(Request $request)
     }
 
     // GET /api/satpam/skip-options
-    // Titik yang boleh di-skip: cuma titik yang ada di jadwal/rute satpam
-    // hari ini, dan yang belum punya log sama sekali hari ini (belum
-    // discan/di-skip/dsb). Titik yang sudah diproses gak ditawarkan lagi.
+    // Titik yang boleh di-skip: titik yang ada di jadwal satpam shift ini,
+    // dan belum punya log final (berhasil/terlambat/skip) pada putaran saat ini.
+    // Anomali tidak dihitung final — titiknya tetap ditawarkan untuk di-skip.
     public function skipOptions(Request $request)
     {
         $satpam = Satpam::where('user_id', $request->user()->id)->first();
@@ -447,32 +513,55 @@ public function history(Request $request)
             ->whereHas('schedule', function ($query) {
                 $query->where('status', 'aktif')
                     ->whereDate('start_date', '<=', today())
-                    ->whereDate('end_date', '>=', today());
+                    ->whereDate('end_date', '>=', today()->copy()->subDay());
             })
             ->orderBy('sequence_order')
             ->get();
 
-        // Titik dianggap "sudah diproses" kalau punya log hari ini dengan
-        // status final (berhasil/terlambat/skip) untuk titik itu — gak
-        // peduli lewat schedule_detail yang mana. Status anomali gak
-        // dihitung selesai, jadi titiknya tetap muncul sebagai opsi. Satpam
-        // bisa punya lebih dari 1 jadwal/rute hari yang sama yang kebetulan
-        // memuat titik yang sama, jadi pengecualiannya harus per titik fisik
-        // (patrol_point_id), bukan per baris schedule_detail.
-        $loggedPatrolPointIds = PatrolLog::where('satpam_id', $satpam->id)
-            ->whereDate('scan_time', today())
+        // Tentukan putaran aktif saat ini (default 1 jika shift belum dimulai).
+        $currentRound = 1;
+        $firstDetail  = $scheduleDetails->first();
+
+        if ($firstDetail) {
+            $roundService = new PatrolRoundService();
+
+            foreach ([today(), today()->copy()->subDay()] as $anchor) {
+                [$windowStart, $windowEnd] = $roundService->shiftWindow(
+                    $firstDetail->shift_start,
+                    $firstDetail->shift_end,
+                    $anchor
+                );
+
+                if (now()->between($windowStart, $windowEnd)) {
+                    $currentRound = $roundService->resolveRound(
+                        $firstDetail->shift_label,
+                        $anchor,
+                        now()
+                    );
+                    break;
+                }
+            }
+        }
+
+        // Titik dianggap sudah selesai pada putaran ini jika punya log final
+        // (berhasil/terlambat/skip) dengan patrol_round yang sama.
+        $scheduleDetailIds  = $scheduleDetails->pluck('id');
+        $processedDetailIds = PatrolLog::where('satpam_id', $satpam->id)
+            ->whereIn('schedule_detail_id', $scheduleDetailIds)
+            ->where('patrol_round', $currentRound)
             ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
-            ->pluck('patrol_point_id')
+            ->pluck('schedule_detail_id')
             ->unique();
 
         $points = $scheduleDetails
-            ->whereNotIn('patrol_point_id', $loggedPatrolPointIds)
+            ->whereNotIn('id', $processedDetailIds)
             ->unique('patrol_point_id')
             ->sortBy('sequence_order')
             ->map(fn (ScheduleDetail $detail) => [
                 'patrol_point_id' => $detail->patrol_point_id,
                 'name'            => $detail->patrolPoint?->name ?? '-',
                 'sequence_order'  => $detail->sequence_order,
+                'current_round'   => $currentRound,
             ])
             ->values();
 
@@ -518,14 +607,20 @@ public function history(Request $request)
             ], 422);
         }
 
-        [$scheduleDetail, , $shiftEndAt] = $resolved;
+        [$scheduleDetail, $shiftStartAt, $shiftEndAt] = $resolved;
 
-        // Titik yang statusnya sudah final (berhasil/terlambat/skip) hari ini
-        // tidak boleh discan lagi. Khusus anomali dianggap belum selesai,
-        // jadi satpam boleh mencoba scan ulang.
+        // Tentukan putaran aktif berdasarkan jam sekarang dan anchor shift.
+        // Anchor = tanggal shift mulai (penting untuk shift Malam yang overnight).
+        $roundService = new PatrolRoundService();
+        $shiftAnchor  = $shiftStartAt ? $shiftStartAt->copy()->startOfDay() : today();
+        $round        = $roundService->resolveRound($scheduleDetail->shift_label, $shiftAnchor, now());
+
+        // Titik yang statusnya sudah final (berhasil/terlambat/skip) pada PUTARAN
+        // yang sama tidak boleh discan lagi. Khusus anomali dianggap belum selesai,
+        // jadi satpam boleh mencoba scan ulang. Berbeda putaran = boleh scan lagi.
         $existingLog = PatrolLog::where('satpam_id', $satpam->id)
-            ->where('patrol_point_id', $patrolPoint->id)
-            ->whereDate('scan_time', today())
+            ->where('schedule_detail_id', $scheduleDetail->id)
+            ->where('patrol_round', $round)
             ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
             ->first();
 
@@ -572,11 +667,12 @@ public function history(Request $request)
             'latitude'            => $validated['latitude'] ?? $patrolPoint->latitude,
             'longitude'           => $validated['longitude'] ?? $patrolPoint->longitude,
             'distance_from_point' => $distance,
+            'patrol_round'        => $round,
             'scan_status'         => $scanStatus,
             'note'                => $note,
         ]);
 
-        $skippedPoints = $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail);
+        $skippedPoints = $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail, $round);
 
         $messages = [
             'anomali'   => 'Scan tercatat, tapi lokasi Anda di luar radius titik patroli.',
@@ -632,17 +728,27 @@ public function history(Request $request)
 
         $patrolPoint = PatrolPoint::findOrFail($validated['patrol_point_id']);
 
-        $scheduleDetail = $this->findScheduleDetail($satpam->id, $patrolPoint->id);
+        // Gunakan resolveScheduleDetail (bukan findScheduleDetail) agar kita
+        // mendapat $shiftStartAt yang diperlukan untuk resolusi putaran.
+        $resolved = $this->resolveScheduleDetail($satpam->id, $patrolPoint->id);
 
-        if (! $scheduleDetail) {
+        if (! $resolved) {
             return response()->json([
                 'message' => 'Titik ini bukan bagian dari jadwal patroli Anda hari ini.',
             ], 422);
         }
 
+        [$scheduleDetail, $shiftStartAt, ] = $resolved;
+
+        // Tentukan putaran aktif.
+        $roundService = new PatrolRoundService();
+        $shiftAnchor  = $shiftStartAt ? $shiftStartAt->copy()->startOfDay() : today();
+        $round        = $roundService->resolveRound($scheduleDetail->shift_label, $shiftAnchor, now());
+
+        // Cek apakah titik ini sudah di-skip/scan pada PUTARAN yang sama.
         $existingLog = PatrolLog::where('satpam_id', $satpam->id)
-            ->where('patrol_point_id', $patrolPoint->id)
-            ->whereDate('scan_time', today())
+            ->where('schedule_detail_id', $scheduleDetail->id)
+            ->where('patrol_round', $round)
             ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
             ->first();
 
@@ -659,6 +765,7 @@ public function history(Request $request)
             'scan_time'          => now(),
             'latitude'           => $patrolPoint->latitude,
             'longitude'          => $patrolPoint->longitude,
+            'patrol_round'       => $round,
             'scan_status'        => 'skip',
             'note'               => $validated['reason'],
             'review_status'      => 'pending',
@@ -669,7 +776,7 @@ public function history(Request $request)
             'reason'        => $validated['reason'],
         ]);
 
-        $skippedPoints = $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail);
+        $skippedPoints = $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail, $round);
 
         return response()->json([
             'message'        => 'Skip scan berhasil dicatat.',
