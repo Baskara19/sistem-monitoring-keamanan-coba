@@ -451,7 +451,7 @@
                     >
                       <div class="round-group-header">
                         <span class="round-group-badge">Putaran {{ roundGroup.round }}</span>
-                        <span class="round-group-time">Target: {{ roundGroup.target_time }}</span>
+                        <span class="round-group-time">Mulai Scan: {{ roundGroup.target_time }}</span>
                       </div>
 
                       <div class="patrol-timeline">

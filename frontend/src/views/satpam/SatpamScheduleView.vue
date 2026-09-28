@@ -111,7 +111,7 @@
         <section class="section">
           <div class="section-heading">
             <div>
-              <h2>{{ isGroupedRound ? `Putaran ${currentRoundData?.round} — Target ${currentRoundData?.target_time}` : "Rute Patroli" }}</h2>
+              <h2>{{ isGroupedRound ? `Putaran ${currentRoundData?.round} — Mulai Scan ${currentRoundData?.target_time}` : "Rute Patroli" }}</h2>
               <p>{{ displayedPoints.length }} titik patroli</p>
             </div>
           </div>
@@ -183,7 +183,7 @@
 
                 <div class="time-row">
                   <div class="time-item">
-                    <span>Target Waktu</span>
+                    <span>Mulai Scan</span>
                     <strong>{{ isGroupedRound ? (currentRoundData?.target_time || "-") : formatTime(point.shift_start) }}</strong>
                   </div>
 
