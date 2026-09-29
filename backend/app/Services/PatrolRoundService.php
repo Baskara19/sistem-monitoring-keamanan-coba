@@ -186,6 +186,83 @@ class PatrolRoundService
         return Carbon::parse($roundDay->toDateString() . ' ' . $timeString);
     }
 
+    /** Batas akhir untuk mengejar sesi tertentu sebagai terlambat. */
+    public function roundLateUntil(string $shiftLabel, int $round, Carbon $shiftAnchor): ?Carbon
+    {
+        if ($round < 3) {
+            return $this->roundTargetCarbon($shiftLabel, $round + 2, $shiftAnchor);
+        }
+
+        if ($round === 3) {
+            return $this->roundTargetCarbon($shiftLabel, 4, $shiftAnchor);
+        }
+
+        $nextLabel = match ($shiftLabel) {
+            'Pagi'  => 'Siang',
+            'Siang' => 'Malam',
+            'Malam' => 'Pagi',
+            default => null,
+        };
+
+        if (! $nextLabel) {
+            return null;
+        }
+
+        $nextAnchor = $shiftAnchor->copy();
+        if ($shiftLabel === 'Siang' || $shiftLabel === 'Malam') {
+            $nextAnchor->addDay();
+        }
+
+        return $this->roundTargetCarbon($nextLabel, 1, $nextAnchor);
+    }
+
+    /**
+     * Pilih sesi yang belum selesai. Sesi sebelumnya masih dapat dikejar
+     * sebagai terlambat sampai batas dua target sesi berikutnya.
+     *
+     * @return array{round:int,is_late:bool}
+     */
+    public function resolveRoundForAttempt(
+        string $shiftLabel,
+        Carbon $shiftAnchor,
+        Carbon $scanTime,
+        array $completedRounds = []
+    ): array {
+        $currentRound = $this->resolveRound($shiftLabel, $shiftAnchor, $scanTime);
+        $completedRounds = array_map('intval', $completedRounds);
+
+        for ($round = 1; $round <= $currentRound; $round++) {
+            if (in_array($round, $completedRounds, true)) {
+                continue;
+            }
+
+            $target = $this->roundTargetCarbon($shiftLabel, $round, $shiftAnchor);
+            $normalUntil = $round < 4
+                ? $this->roundTargetCarbon($shiftLabel, $round + 1, $shiftAnchor)
+                : $this->roundLateUntil($shiftLabel, $round, $shiftAnchor);
+            $lateUntil = $this->roundLateUntil($shiftLabel, $round, $shiftAnchor);
+
+            if ($target && $scanTime->lt($target)) {
+                return ['round' => $round, 'is_late' => false];
+            }
+
+            if ($normalUntil && $scanTime->lt($normalUntil)) {
+                return ['round' => $round, 'is_late' => false];
+            }
+
+            if ($lateUntil && $scanTime->lt($lateUntil)) {
+                return ['round' => $round, 'is_late' => true];
+            }
+        }
+
+        $target = $this->roundTargetCarbon($shiftLabel, $currentRound, $shiftAnchor);
+
+        return [
+            'round'   => $currentRound,
+            'is_late' => $target ? $scanTime->gt($target) : false,
+        ];
+    }
+
     /**
      * Hitung daftar anchor yang perlu dicoba saat menentukan shift aktif.
      *
@@ -271,4 +348,3 @@ class PatrolRoundService
         ];
     }
 }
-

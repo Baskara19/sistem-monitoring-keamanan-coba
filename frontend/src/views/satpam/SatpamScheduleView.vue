@@ -281,7 +281,7 @@
 
                 <!-- Tombol Ajukan Handover jika titik belum di-scan & belum ada handover -->
                 <div
-                  v-else-if="isToday && isGroupedRound && (!point.scan_status || point.scan_status === 'belum')"
+                  v-else-if="isToday && isGroupedRound && isRoundSessionActive(currentRoundData?.round) && (!point.scan_status || point.scan_status === 'belum')"
                   class="handover-action-row"
                 >
                   <button
@@ -574,6 +574,43 @@ const scheduleTitle = computed(() => {
   const first = scheduleDetails.value[0];
   return first?.schedule?.title ?? "";
 });
+
+// Handover hanya tersedia pada sesi yang sedang berjalan. Sesi yang sudah
+// lewat atau belum dimulai tetap dapat dilihat, tetapi tidak dapat di-handover.
+const getCurrentSessionRound = () => {
+  if (!isToday.value || !shiftInfo.value?.label) return null;
+
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const sessions = {
+    Pagi: [9 * 60, 11 * 60, 13 * 60, 14 * 60],
+    Siang: [16 * 60, 18 * 60, 20 * 60, 22 * 60],
+    Malam: [0, 2 * 60, 4 * 60, 6 * 60],
+  }[shiftInfo.value.label];
+
+  if (!sessions) return null;
+
+  // Waktu sebelum sesi pertama masih menjadi bagian shift sebelumnya.
+  if (minutes < sessions[0]) return null;
+
+  let active = null;
+  sessions.forEach((start, index) => {
+    if (minutes >= start) active = index + 1;
+  });
+
+  // Setelah sesi terakhir, tanggung jawab berpindah ke shift berikutnya.
+  const lastSessionEnd = shiftInfo.value.label === "Pagi"
+    ? 16 * 60
+    : shiftInfo.value.label === "Siang"
+      ? 24 * 60
+      : 9 * 60;
+
+  return minutes < lastSessionEnd ? active : null;
+};
+
+const isRoundSessionActive = (round) => {
+  return Number(round) === getCurrentSessionRound();
+};
 
 /*
 |--------------------------------------------------------------------------

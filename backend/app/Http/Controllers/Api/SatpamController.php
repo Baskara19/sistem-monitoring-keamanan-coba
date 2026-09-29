@@ -188,8 +188,25 @@ public function summary(Request $request)
             foreach ([today(), today()->copy()->subDay()] as $anchor) {
                 $window = $this->shiftWindowOn($detail, $anchor);
 
-                if ($window && now()->between($window[0], $window[1])) {
-                    return $this->formatShiftInfo($detail);
+                if ($window) {
+                    [$shiftStart, $shiftEnd] = $window;
+                    $label = $detail->shift_label;
+                    $sessionStart = match ($label) {
+                        'Pagi'  => $shiftStart->copy()->setTime(9, 0),
+                        'Siang' => $shiftStart->copy()->setTime(16, 0),
+                        'Malam' => $shiftStart->copy()->addDay()->setTime(0, 0),
+                        default => $shiftStart,
+                    };
+                    $sessionEnd = match ($label) {
+                        'Pagi'  => $shiftStart->copy()->setTime(16, 0),
+                        'Siang' => $shiftStart->copy()->addDay()->setTime(0, 0),
+                        'Malam' => $shiftStart->copy()->addDay()->setTime(9, 0),
+                        default => $shiftEnd,
+                    };
+
+                    if (now()->between($sessionStart, $sessionEnd, false)) {
+                        return $this->formatShiftInfo($detail);
+                    }
                 }
             }
         }
@@ -407,7 +424,9 @@ public function summary(Request $request)
             ];
         }
 
-        // Tentukan ScheduleDetail dan jendela waktu shift yang aktif saat ini
+        // Tentukan ScheduleDetail berdasarkan jendela sesi, bukan jendela shift.
+        // Contoh: 14:00-15:59 tetap milik sesi terakhir Pagi;
+        // Shift Siang baru bertanggung jawab mulai sesi 16:00.
         $detail = null;
         $shiftStartAt = null;
         $shiftEndAt = null;
@@ -420,7 +439,21 @@ public function summary(Request $request)
                     continue;
                 }
                 [$start, $end] = $window;
-                if (now()->between($start, $end)) {
+                $label = $cand->shift_label;
+                $sessionStart = match ($label) {
+                    'Pagi'  => $start->copy()->setTime(9, 0),
+                    'Siang' => $start->copy()->setTime(16, 0),
+                    'Malam' => $start->copy()->addDay()->setTime(0, 0),
+                    default => $start,
+                };
+                $sessionEnd = match ($label) {
+                    'Pagi'  => $start->copy()->setTime(16, 0),
+                    'Siang' => $start->copy()->addDay()->setTime(0, 0),
+                    'Malam' => $start->copy()->addDay()->setTime(9, 0),
+                    default => $end,
+                };
+
+                if (now()->between($sessionStart, $sessionEnd, false)) {
                     $detail = $cand;
                     $shiftStartAt = $start;
                     $shiftEndAt = $end;
@@ -432,17 +465,32 @@ public function summary(Request $request)
             }
         }
 
-        if (! $detail && $fallbackDetail) {
-            [$detail, $shiftStartAt, $shiftEndAt] = $fallbackDetail;
-        }
-
         if (! $detail) {
-            $detail = $allDetails->first();
+            return [
+                'authorized'  => false,
+                'message'     => 'Belum masuk waktu sesi scanning untuk titik ini.',
+                'status_code' => 422,
+            ];
         }
 
-        // Tentukan anchor tanggal shift dan putaran berjalan saat ini
+        // Tentukan anchor tanggal shift dan sesi yang boleh diproses.
         $shiftAnchor = $shiftStartAt ? $shiftStartAt->copy()->startOfDay() : $today;
-        $activeRound = $roundService->resolveRound($detail->shift_label, $shiftAnchor, now());
+        $completedRounds = PatrolLog::where('schedule_detail_id', $detail->id)
+            ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
+            ->pluck('patrol_round')
+            ->filter(fn ($round) => $round !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        $roundDecision = $roundService->resolveRoundForAttempt(
+            $detail->shift_label,
+            $shiftAnchor,
+            now(),
+            $completedRounds
+        );
+        $activeRound = $roundDecision['round'];
+        $isSessionLate = $roundDecision['is_late'];
 
         // Cek apakah ada handover yang diterima untuk jadwal dan titik ini
         $acceptedHandover = $handoversReceived
@@ -548,6 +596,7 @@ public function summary(Request $request)
             'shift_start_at'  => $shiftStartAt,
             'shift_end_at'    => $shiftEndAt,
             'round'           => $round,
+            'is_session_late' => $isSessionLate,
             'active_handover' => $activeHandover,
         ];
     }
@@ -1005,6 +1054,7 @@ public function history(Request $request)
         [$scheduleDetail, $shiftStartAt, $shiftEndAt] = [$context['detail'], $context['shift_start_at'], $context['shift_end_at']];
         $round = $context['round'];
         $activeHandover = $context['active_handover'];
+        $isSessionLate = $context['is_session_late'] ?? false;
 
         $distance = null;
 
@@ -1019,17 +1069,15 @@ public function history(Request $request)
 
         $isOutOfRange = $distance !== null && $distance > $patrolPoint->radius_meters;
 
-        // Cek apakah scan dilakukan setelah shift-nya berakhir (terlambat).
-        // $shiftEndAt sudah memperhitungkan shift yang lintas tengah malam
-        // (mis. Malam 22:00-06:00) lewat resolveScheduleDetail().
-        $isLate = $shiftEndAt !== null && now()->greaterThan($shiftEndAt);
+        // Keterlambatan ditentukan oleh jendela sesi, bukan akhir shift.
+        $isLate = $isSessionLate;
 
         if ($isOutOfRange) {
             $scanStatus = 'anomali';
             $note = 'Jarak scan di luar radius titik patroli.';
         } elseif ($isLate) {
             $scanStatus = 'terlambat';
-            $note = 'Scan dilakukan setelah shift berakhir.';
+            $note = 'Scan dilakukan setelah sesi seharusnya.';
         } else {
             $scanStatus = 'berhasil';
             $note = null;
@@ -1062,7 +1110,7 @@ public function history(Request $request)
 
         $messages = [
             'anomali'   => 'Scan tercatat, tapi lokasi Anda di luar radius titik patroli.',
-            'terlambat' => 'Scan tercatat, tapi Anda terlambat dari jadwal shift.',
+            'terlambat' => 'Scan tercatat, tapi Anda terlambat dari sesi yang dijadwalkan.',
             'berhasil'  => 'Scan berhasil.',
         ];
 
