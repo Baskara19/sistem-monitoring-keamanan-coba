@@ -161,7 +161,7 @@
         <section class="section">
           <div class="section-heading">
             <div>
-              <h2>{{ isGroupedRound ? `Putaran ${currentRoundData?.round} — Mulai Scan ${currentRoundData?.target_time}` : "Rute Patroli" }}</h2>
+              <h2>{{ isGroupedRound ? `Putaran ${currentRoundData?.round} — Mulai Scan ${currentRoundTimeRange}` : "Rute Patroli" }}</h2>
               <p>{{ displayedPoints.length }} titik patroli</p>
             </div>
           </div>
@@ -558,6 +558,34 @@ const hasSchedule = computed(() => {
 const currentRoundData = computed(() => {
   if (rounds.value.length === 0) return null;
   return rounds.value[activeRoundIndex.value] || rounds.value[0];
+});
+
+const roundTimesByShift = {
+  Pagi: ["09:00", "11:00", "13:00", "14:00"],
+  Siang: ["16:00", "18:00", "20:00", "22:00"],
+  Malam: ["00:00", "02:00", "04:00", "06:00"],
+};
+const roundEndTimesByShift = {
+  Pagi: ["11:00", "13:00", "14:00", "16:00"],
+  Siang: ["18:00", "20:00", "22:00", "00:00"],
+  Malam: ["02:00", "04:00", "06:00", "09:00"],
+};
+
+// Setiap putaran berjalan sampai waktu mulai putaran berikutnya.
+// Untuk putaran terakhir, gunakan waktu selesai shift sebagai batas akhirnya.
+const currentRoundTimeRange = computed(() => {
+  const current = currentRoundData.value;
+  if (!current?.target_time) return "-";
+
+  const shiftRoundTimes = roundTimesByShift[shiftInfo.value?.label] || [];
+  const shiftRoundEndTimes = roundEndTimesByShift[shiftInfo.value?.label] || [];
+  const currentRoundIndex = Number(current.round) - 1;
+  const endTime = shiftRoundEndTimes[currentRoundIndex]
+    || shiftRoundTimes[currentRoundIndex + 1]
+    || shiftInfo.value?.end
+    || "-";
+
+  return `${current.target_time} - ${endTime}`;
 });
 
 const displayedPoints = computed(() => {
