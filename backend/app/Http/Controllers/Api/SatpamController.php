@@ -303,7 +303,6 @@ public function summary(Request $request)
 
         // Ambil semua titik di schedule yang sama dengan urutan lebih kecil.
         $earlierDetails = ScheduleDetail::with('patrolPoint')
-            ->where('satpam_id', $satpam->id)
             ->where('schedule_id', $currentDetail->schedule_id)
             ->where('sequence_order', '<', $currentDetail->sequence_order)
             ->get();
@@ -337,6 +336,220 @@ public function summary(Request $request)
         }
 
         return $missedNames;
+    }
+
+    /**
+     * Resolusi jadwal dan otorisasi patroli untuk titik tertentu.
+     * Memeriksa jadwal langsung (Satpam / KAT) maupun delegasi resmi (PatrolHandover).
+     *
+     * @return array{
+     *   authorized: bool,
+     *   message?: string,
+     *   status_code?: int,
+     *   detail?: ScheduleDetail,
+     *   shift_start_at?: \Carbon\Carbon|null,
+     *   shift_end_at?: \Carbon\Carbon|null,
+     *   round?: int,
+     *   active_handover?: PatrolHandover|null
+     * }
+     */
+    private function resolvePatrolContext(Satpam $satpam, PatrolPoint $patrolPoint): array
+    {
+        $roundService = new PatrolRoundService();
+        $today = today();
+        $yesterday = $today->copy()->subDay();
+
+        // 1. Cari kandidat ScheduleDetail langsung dari jadwal aktif satpam / KAT
+        $directCandidate = ScheduleDetail::with(['patrolPoint', 'schedule.katim.user', 'satpam.user'])
+            ->where('patrol_point_id', $patrolPoint->id)
+            ->where(function ($q) use ($satpam) {
+                $q->where('satpam_id', $satpam->id)
+                  ->orWhereHas('schedule', fn ($sq) => $sq->where('katim_id', $satpam->id));
+            })
+            ->whereHas('schedule', function ($query) use ($today, $yesterday) {
+                $query->where('status', 'aktif')
+                    ->whereDate('start_date', '<=', $today)
+                    ->whereDate('end_date', '>=', $yesterday);
+            })
+            ->get();
+
+        // 2. Cari kandidat handover yang melibatkan satpam ini sebagai penerima (to_satpam_id)
+        $handoversReceived = PatrolHandover::with([
+            'fromSatpam.user',
+            'scheduleDetail.schedule.katim.user',
+            'scheduleDetail.satpam.user',
+            'scheduleDetail.patrolPoint'
+        ])
+            ->where('to_satpam_id', $satpam->id)
+            ->where('patrol_point_id', $patrolPoint->id)
+            ->whereDate('handover_date', '>=', $yesterday)
+            ->whereDate('handover_date', '<=', $today)
+            ->orderBy('id', 'desc')
+            ->get();
+
+        // Kumpulkan semua schedule detail yang relevan
+        $allDetails = collect();
+        foreach ($directCandidate as $dc) {
+            $allDetails->push($dc);
+        }
+        foreach ($handoversReceived as $hr) {
+            if ($hr->scheduleDetail) {
+                $allDetails->push($hr->scheduleDetail);
+            }
+        }
+        $allDetails = $allDetails->unique('id');
+
+        if ($allDetails->isEmpty()) {
+            return [
+                'authorized'  => false,
+                'message'     => 'Titik ini bukan bagian dari jadwal patroli Anda hari ini.',
+                'status_code' => 422,
+            ];
+        }
+
+        // Tentukan ScheduleDetail dan jendela waktu shift yang aktif saat ini
+        $detail = null;
+        $shiftStartAt = null;
+        $shiftEndAt = null;
+        $fallbackDetail = null;
+
+        foreach ($allDetails as $cand) {
+            foreach ([$today, $yesterday] as $anchor) {
+                $window = $this->shiftWindowOn($cand, $anchor);
+                if (! $window) {
+                    continue;
+                }
+                [$start, $end] = $window;
+                if (now()->between($start, $end)) {
+                    $detail = $cand;
+                    $shiftStartAt = $start;
+                    $shiftEndAt = $end;
+                    break 2;
+                }
+                if ($end->lessThan(now()) && (! $fallbackDetail || $end->greaterThan($fallbackDetail[2]))) {
+                    $fallbackDetail = [$cand, $start, $end];
+                }
+            }
+        }
+
+        if (! $detail && $fallbackDetail) {
+            [$detail, $shiftStartAt, $shiftEndAt] = $fallbackDetail;
+        }
+
+        if (! $detail) {
+            $detail = $allDetails->first();
+        }
+
+        // Tentukan anchor tanggal shift dan putaran berjalan saat ini
+        $shiftAnchor = $shiftStartAt ? $shiftStartAt->copy()->startOfDay() : $today;
+        $activeRound = $roundService->resolveRound($detail->shift_label, $shiftAnchor, now());
+
+        // Cek apakah ada handover yang diterima untuk jadwal dan titik ini
+        $acceptedHandover = $handoversReceived
+            ->where('schedule_detail_id', $detail->id)
+            ->where('status', 'accepted')
+            ->first(function ($h) use ($activeRound) {
+                return (int) $h->patrol_round === (int) $activeRound;
+            })
+            ?? $handoversReceived
+                ->where('schedule_detail_id', $detail->id)
+                ->where('status', 'accepted')
+                ->first(function ($h) {
+                    return ! PatrolLog::where('patrol_handover_id', $h->id)
+                        ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
+                        ->exists();
+                });
+
+        $activeHandover = null;
+        $round = $activeRound;
+
+        if ($acceptedHandover) {
+            // Otorisasi via handover yang telah diterima (accepted)
+            $activeHandover = $acceptedHandover;
+            $round = $acceptedHandover->patrol_round;
+        } else {
+            // Cek apakah ada handover tetapi statusnya belum diterima (pending/rejected/cancelled)
+            $nonAcceptedHandover = $handoversReceived
+                ->where('schedule_detail_id', $detail->id)
+                ->where('patrol_round', $activeRound)
+                ->first()
+                ?? $handoversReceived->where('schedule_detail_id', $detail->id)->first();
+
+            if ($nonAcceptedHandover) {
+                if ($nonAcceptedHandover->status === 'pending') {
+                    return [
+                        'authorized'  => false,
+                        'message'     => 'Permintaan handover untuk titik ini belum Anda terima. Silakan terima handover terlebih dahulu.',
+                        'status_code' => 422,
+                    ];
+                } elseif ($nonAcceptedHandover->status === 'rejected') {
+                    return [
+                        'authorized'  => false,
+                        'message'     => 'Permintaan handover untuk titik ini telah ditolak.',
+                        'status_code' => 422,
+                    ];
+                } elseif ($nonAcceptedHandover->status === 'cancelled') {
+                    return [
+                        'authorized'  => false,
+                        'message'     => 'Permintaan handover untuk titik ini telah dibatalkan oleh pemohon.',
+                        'status_code' => 422,
+                    ];
+                }
+            }
+
+            // Validasi penugasan langsung pada putaran ini
+            if (! $roundService->isRoundAssignedTo($detail, $round, $satpam->id)) {
+                $assignedInfo = $roundService->getAssignedSatpamInfo($detail, $round);
+                $assignedRole = $assignedInfo['role'] === 'katim' ? 'KAT' : 'Satpam';
+                $assignedName = $assignedInfo['name'];
+                return [
+                    'authorized'  => false,
+                    'message'     => "Putaran {$round} adalah tugas {$assignedRole} ({$assignedName}). Anda tidak ditugaskan pada putaran ini.",
+                    'status_code' => 422,
+                ];
+            }
+
+            // Jika petugas yang ditugaskan sudah mengalihkan titik ini ke rekan (status accepted), petugas asal dilarang scan
+            $handoverSent = PatrolHandover::with('toSatpam.user')
+                ->where('from_satpam_id', $satpam->id)
+                ->where('schedule_detail_id', $detail->id)
+                ->where('patrol_round', $round)
+                ->where('status', 'accepted')
+                ->whereDate('handover_date', $shiftAnchor->toDateString())
+                ->first();
+
+            if ($handoverSent) {
+                $partnerName = $handoverSent->toSatpam?->user?->name ?? 'rekan satpam';
+                return [
+                    'authorized'  => false,
+                    'message'     => "Titik ini pada Putaran {$round} sudah Anda alihkan (handover) kepada {$partnerName}. Anda tidak dapat melakukan scan pada titik ini.",
+                    'status_code' => 422,
+                ];
+            }
+        }
+
+        // Cek scan ganda: titik sudah selesai diproses (berhasil/terlambat/skip) pada putaran yang sama
+        $existingLog = PatrolLog::where('schedule_detail_id', $detail->id)
+            ->where('patrol_round', $round)
+            ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
+            ->first();
+
+        if ($existingLog) {
+            return [
+                'authorized'  => false,
+                'message'     => $this->alreadyProcessedMessage($existingLog->scan_status),
+                'status_code' => 422,
+            ];
+        }
+
+        return [
+            'authorized'      => true,
+            'detail'          => $detail,
+            'shift_start_at'  => $shiftStartAt,
+            'shift_end_at'    => $shiftEndAt,
+            'round'           => $round,
+            'active_handover' => $activeHandover,
+        ];
     }
     // GET /api/satpam/schedule?date=YYYY-MM-DD
 public function schedule(Request $request)
@@ -780,87 +993,17 @@ public function history(Request $request)
             ], 404);
         }
 
-        // Titik yang di-scan harus bagian dari jadwal/rute satpam hari ini,
-        // ATAU merupakan titik yang resmi diterima lewat Handover dari rekan satpam.
-        $resolved = $this->resolveScheduleDetail($satpam->id, $patrolPoint->id);
-        $activeHandover = null;
+        $context = $this->resolvePatrolContext($satpam, $patrolPoint);
 
-        if (! $resolved) {
-            $activeHandover = PatrolHandover::with(['fromSatpam.user', 'scheduleDetail.schedule'])
-                ->where('to_satpam_id', $satpam->id)
-                ->where('patrol_point_id', $patrolPoint->id)
-                ->whereDate('handover_date', '>=', today()->copy()->subDay())
-                ->where('status', 'accepted')
-                ->latest()
-                ->first();
-
-            if ($activeHandover && $activeHandover->scheduleDetail) {
-                $detail = $activeHandover->scheduleDetail;
-                $window = $this->shiftWindowOn($detail, today())
-                    ?? $this->shiftWindowOn($detail, today()->copy()->subDay());
-
-                $shiftStartAt = $window ? $window[0] : null;
-                $shiftEndAt   = $window ? $window[1] : null;
-                $resolved     = [$detail, $shiftStartAt, $shiftEndAt];
-            }
-        }
-
-        if (! $resolved) {
+        if (! $context['authorized']) {
             return response()->json([
-                'message' => 'Titik ini bukan bagian dari jadwal patroli Anda hari ini.',
-            ], 422);
+                'message' => $context['message'],
+            ], $context['status_code'] ?? 422);
         }
 
-        [$scheduleDetail, $shiftStartAt, $shiftEndAt] = $resolved;
-
-        // Tentukan putaran aktif. Jika melalui handover, gunakan nomor putaran yang di-handover.
-        $roundService = new PatrolRoundService();
-        $shiftAnchor  = $shiftStartAt ? $shiftStartAt->copy()->startOfDay() : today();
-        $round        = $activeHandover
-            ? $activeHandover->patrol_round
-            : $roundService->resolveRound($scheduleDetail->shift_label, $shiftAnchor, now());
-
-        // Validasi penugasan putaran: jika bukan melalui handover, pastikan putaran ini adalah tugas petugas yang login.
-        if (! $activeHandover) {
-            if (! $roundService->isRoundAssignedTo($scheduleDetail, $round, $satpam->id)) {
-                $assignedInfo = $roundService->getAssignedSatpamInfo($scheduleDetail, $round);
-                $assignedRole = $assignedInfo['role'] === 'katim' ? 'KAT' : 'Satpam';
-                $assignedName = $assignedInfo['name'];
-                return response()->json([
-                    'message' => "Putaran {$round} adalah tugas {$assignedRole} ({$assignedName}). Anda tidak ditugaskan pada putaran ini.",
-                ], 422);
-            }
-        }
-
-        // Jika titik ini pada putaran aktif sudah dialihkan (handover accepted) ke rekan oleh satpam ini,
-        // maka satpam pengaju tidak boleh melakukan scan lagi.
-        $handoverSent = PatrolHandover::with('toSatpam.user')
-            ->where('from_satpam_id', $satpam->id)
-            ->where('schedule_detail_id', $scheduleDetail->id)
-            ->where('patrol_round', $round)
-            ->where('status', 'accepted')
-            ->whereDate('handover_date', today())
-            ->first();
-
-        if ($handoverSent) {
-            $partnerName = $handoverSent->toSatpam?->user?->name ?? 'rekan satpam';
-            return response()->json([
-                'message' => "Titik ini pada Putaran {$round} sudah Anda alihkan (handover) kepada {$partnerName}. Anda tidak dapat melakukan scan pada titik ini.",
-            ], 422);
-        }
-
-        // Titik yang statusnya sudah final (berhasil/terlambat/skip) pada PUTARAN
-        // yang sama tidak boleh discan lagi.
-        $existingLog = PatrolLog::where('schedule_detail_id', $scheduleDetail->id)
-            ->where('patrol_round', $round)
-            ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
-            ->first();
-
-        if ($existingLog) {
-            return response()->json([
-                'message' => $this->alreadyProcessedMessage($existingLog->scan_status),
-            ], 422);
-        }
+        [$scheduleDetail, $shiftStartAt, $shiftEndAt] = [$context['detail'], $context['shift_start_at'], $context['shift_end_at']];
+        $round = $context['round'];
+        $activeHandover = $context['active_handover'];
 
         $distance = null;
 
@@ -912,7 +1055,9 @@ public function history(Request $request)
             'note'                     => $note,
         ]);
 
-        $skippedPoints = $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail, $round);
+        $skippedPoints = $activeHandover
+            ? []
+            : $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail, $round);
 
         $messages = [
             'anomali'   => 'Scan tercatat, tapi lokasi Anda di luar radius titik patroli.',
@@ -968,56 +1113,37 @@ public function history(Request $request)
 
         $patrolPoint = PatrolPoint::findOrFail($validated['patrol_point_id']);
 
-        // Gunakan resolveScheduleDetail (bukan findScheduleDetail) agar kita
-        // mendapat $shiftStartAt yang diperlukan untuk resolusi putaran.
-        $resolved = $this->resolveScheduleDetail($satpam->id, $patrolPoint->id);
+        $context = $this->resolvePatrolContext($satpam, $patrolPoint);
 
-        if (! $resolved) {
+        if (! $context['authorized']) {
             return response()->json([
-                'message' => 'Titik ini bukan bagian dari jadwal patroli Anda hari ini.',
-            ], 422);
+                'message' => $context['message'],
+            ], $context['status_code'] ?? 422);
         }
 
-        [$scheduleDetail, $shiftStartAt, ] = $resolved;
+        $scheduleDetail = $context['detail'];
+        $round          = $context['round'];
+        $activeHandover = $context['active_handover'];
 
-        // Tentukan putaran aktif.
-        $roundService = new PatrolRoundService();
-        $shiftAnchor  = $shiftStartAt ? $shiftStartAt->copy()->startOfDay() : today();
-        $round        = $roundService->resolveRound($scheduleDetail->shift_label, $shiftAnchor, now());
-
-        if (! $roundService->isRoundAssignedTo($scheduleDetail, $round, $satpam->id)) {
-            $assignedInfo = $roundService->getAssignedSatpamInfo($scheduleDetail, $round);
-            $assignedRole = $assignedInfo['role'] === 'katim' ? 'KAT' : 'Satpam';
-            $assignedName = $assignedInfo['name'];
-            return response()->json([
-                'message' => "Putaran {$round} adalah tugas {$assignedRole} ({$assignedName}). Anda tidak dapat melakukan skip pada putaran ini.",
-            ], 422);
-        }
-
-        // Cek apakah titik ini sudah di-skip/scan pada PUTARAN yang sama.
-        $existingLog = PatrolLog::where('satpam_id', $satpam->id)
-            ->where('schedule_detail_id', $scheduleDetail->id)
-            ->where('patrol_round', $round)
-            ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
-            ->first();
-
-        if ($existingLog) {
-            return response()->json([
-                'message' => $this->alreadyProcessedMessage($existingLog->scan_status),
-            ], 422);
+        $note = $validated['reason'];
+        if ($activeHandover) {
+            $partnerName = $activeHandover->fromSatpam?->user?->name ?? 'Rekan';
+            $note = "{$note} | Handover dari {$partnerName}";
         }
 
         $patrolLog = PatrolLog::create([
-            'satpam_id'          => $satpam->id,
-            'patrol_point_id'    => $patrolPoint->id,
-            'schedule_detail_id' => $scheduleDetail?->id,
-            'scan_time'          => now(),
-            'latitude'           => $patrolPoint->latitude,
-            'longitude'          => $patrolPoint->longitude,
-            'patrol_round'       => $round,
-            'scan_status'        => 'skip',
-            'note'               => $validated['reason'],
-            'review_status'      => 'pending',
+            'satpam_id'                => $satpam->id,
+            'delegated_from_satpam_id' => $activeHandover ? $activeHandover->from_satpam_id : null,
+            'patrol_handover_id'       => $activeHandover ? $activeHandover->id : null,
+            'patrol_point_id'          => $patrolPoint->id,
+            'schedule_detail_id'       => $scheduleDetail?->id,
+            'scan_time'                => now(),
+            'latitude'                 => $patrolPoint->latitude,
+            'longitude'                => $patrolPoint->longitude,
+            'patrol_round'             => $round,
+            'scan_status'              => 'skip',
+            'note'                     => $note,
+            'review_status'            => 'pending',
         ]);
 
         SkipReason::create([
@@ -1025,7 +1151,9 @@ public function history(Request $request)
             'reason'        => $validated['reason'],
         ]);
 
-        $skippedPoints = $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail, $round);
+        $skippedPoints = $activeHandover
+            ? []
+            : $this->markEarlierCheckpointsAsMissed($satpam, $scheduleDetail, $round);
 
         return response()->json([
             'message'        => 'Skip scan berhasil dicatat.',
