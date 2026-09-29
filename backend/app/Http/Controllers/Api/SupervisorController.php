@@ -1039,13 +1039,16 @@ public function reports(Request $request)
                 ];
             })->values();
 
+            $assignedRole = $assignedInfo['role'] ?? 'satpam';
+            $assignedRoleLabel = $assignedInfo['role_label'] ?? ($assignedRole === 'katim' ? 'KATIM' : 'Satpam');
+
             return [
                 'round'                => $roundNumber,
                 'target_time'          => $targetTime,
                 'assigned_satpam_id'   => $assignedInfo['id'] ?? null,
                 'assigned_satpam_name' => $assignedInfo['name'] ?? null,
-                'assigned_role'        => $assignedInfo['role'] ?? 'satpam',
-                'assigned_role_label'  => $assignedInfo['role_label'] ?? ($assignedInfo['role'] === 'katim' ? 'KATIM' : 'Satpam'),
+                'assigned_role'        => $assignedRole,
+                'assigned_role_label'  => $assignedRoleLabel,
                 'points'               => $points,
             ];
         })->values();

@@ -117,5 +117,16 @@ class PatrolRoundAssignmentTest extends TestCase
         $this->assertEquals('katim', $info2['role']);
         $this->assertEquals('KATIM', $info2['role_label']);
     }
+
+    public function test_null_assigned_info_gracefully_handled(): void
+    {
+        $assignedInfo = null;
+
+        $assignedRole = $assignedInfo['role'] ?? 'satpam';
+        $assignedRoleLabel = $assignedInfo['role_label'] ?? ($assignedRole === 'katim' ? 'KATIM' : 'Satpam');
+
+        $this->assertEquals('satpam', $assignedRole);
+        $this->assertEquals('Satpam', $assignedRoleLabel);
+    }
 }
 

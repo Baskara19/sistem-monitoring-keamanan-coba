@@ -548,8 +548,8 @@ public function summary(Request $request)
             // Validasi penugasan langsung pada putaran ini
             if (! $roundService->isRoundAssignedTo($detail, $round, $satpam->id)) {
                 $assignedInfo = $roundService->getAssignedSatpamInfo($detail, $round);
-                $assignedRole = $assignedInfo['role'] === 'katim' ? 'KAT' : 'Satpam';
-                $assignedName = $assignedInfo['name'];
+                $assignedRole = ($assignedInfo['role'] ?? '') === 'katim' ? 'KAT' : 'Satpam';
+                $assignedName = $assignedInfo['name'] ?? '-';
                 return [
                     'authorized'  => false,
                     'message'     => "Putaran {$round} adalah tugas {$assignedRole} ({$assignedName}). Anda tidak ditugaskan pada putaran ini.",
@@ -803,13 +803,16 @@ public function schedule(Request $request)
 
             $points = $myPoints->concat($receivedPoints)->unique('patrol_point_id')->sortBy('sequence_order')->values();
 
+            $assignedRole = $assignedInfo['role'] ?? 'satpam';
+            $assignedRoleLabel = $assignedInfo['role_label'] ?? ($assignedRole === 'katim' ? 'KATIM' : 'Satpam');
+
             return [
                 'round'                => $roundNumber,
                 'target_time'          => $targetTime,
                 'assigned_satpam_id'   => $assignedInfo['id'] ?? null,
                 'assigned_satpam_name' => $assignedInfo['name'] ?? null,
-                'assigned_role'        => $assignedInfo['role'] ?? 'satpam',
-                'assigned_role_label'  => $assignedInfo['role_label'] ?? ($assignedInfo['role'] === 'katim' ? 'KATIM' : 'Satpam'),
+                'assigned_role'        => $assignedRole,
+                'assigned_role_label'  => $assignedRoleLabel,
                 'points'               => $points,
             ];
         })->values();
