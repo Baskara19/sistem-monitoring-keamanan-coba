@@ -1026,8 +1026,10 @@ public function reports(Request $request)
         $roundService = new PatrolRoundService();
         $roundTimes   = $roundService->getRoundTimes($shiftLabel);
 
-        $patrolTimeline = collect($roundTimes)->map(function ($targetTime, $roundNumber) use ($scheduleDetails, $scheduleLogs, $currentDetail, $roundService) {
-            $assignedInfo = $currentDetail ? $roundService->getAssignedSatpamInfo($currentDetail, $roundNumber) : null;
+        $timelineDate = $currentDetail?->schedule?->start_date ?? $log->scan_time;
+
+        $patrolTimeline = collect($roundTimes)->map(function ($targetTime, $roundNumber) use ($scheduleDetails, $scheduleLogs, $currentDetail, $roundService, $timelineDate) {
+            $assignedInfo = $currentDetail ? $roundService->getAssignedSatpamInfo($currentDetail, $roundNumber, $timelineDate) : null;
 
             $points = $scheduleDetails->map(function ($detail) use ($roundNumber, $scheduleLogs) {
                 $key      = $detail->id . '-' . $roundNumber;

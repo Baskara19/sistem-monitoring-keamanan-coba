@@ -278,26 +278,52 @@ class PatrolRoundService
     }
 
     /**
+     * Ambil angka tanggal (day of month: 1–31) untuk menentukan giliran putaran.
+     */
+    private function resolveDayNumber(ScheduleDetail $detail, Carbon|string|null $date = null): int
+    {
+        if ($date !== null) {
+            return (int) Carbon::parse($date)->day;
+        }
+
+        if (! empty($detail->schedule?->start_date)) {
+            return (int) Carbon::parse($detail->schedule->start_date)->day;
+        }
+
+        return 1;
+    }
+
+    /**
      * Tentukan ID satpam yang bertanggung jawab atas putaran tertentu.
      * Jika jadwal memiliki pembagian KAT (katim_id tidak null):
-     * - Putaran ganjil (1, 3): Satpam pelaksana ($detail->satpam_id)
-     * - Putaran genap (2, 4): KAT / Katim ($detail->schedule->katim_id)
+     * - Tanggal GANJIL (1, 3, 5, ...):
+     *     * Putaran 1 & 3: Satpam pelaksana ($detail->satpam_id)
+     *     * Putaran 2 & 4: KAT / Katim ($detail->schedule->katim_id)
+     * - Tanggal GENAP (2, 4, 6, ...):
+     *     * Putaran 1 & 3: KAT / Katim ($detail->schedule->katim_id)
+     *     * Putaran 2 & 4: Satpam pelaksana ($detail->satpam_id)
      * Jika tidak ada KAT (jadwal mandiri):
      * - Semua putaran (1, 2, 3, 4): Satpam pelaksana ($detail->satpam_id)
      *
-     * @param  ScheduleDetail  $detail
-     * @param  int             $round (1–4)
+     * @param  ScheduleDetail          $detail
+     * @param  int                     $round (1–4)
+     * @param  Carbon|string|null      $date
      * @return int|null
      */
-    public function getAssignedSatpamId(ScheduleDetail $detail, int $round): ?int
+    public function getAssignedSatpamId(ScheduleDetail $detail, int $round, Carbon|string|null $date = null): ?int
     {
         $katimId = $detail->schedule?->katim_id;
 
         if ($katimId) {
-            // Pola selang-seling 2:2:
-            // Ganjil (1, 3) = Satpam
-            // Genap (2, 4)  = KAT
-            return ($round % 2 === 1) ? $detail->satpam_id : $katimId;
+            $day = $this->resolveDayNumber($detail, $date);
+            $isOddDay = ($day % 2 === 1);
+            $isOddRound = ($round % 2 === 1);
+
+            // Ganjil ketemu Ganjil = Satpam, Genap ketemu Genap = Satpam
+            // Ganjil ketemu Genap = KAT
+            $assignToSatpam = ($isOddDay === $isOddRound);
+
+            return $assignToSatpam ? $detail->satpam_id : $katimId;
         }
 
         return $detail->satpam_id;
@@ -306,20 +332,25 @@ class PatrolRoundService
     /**
      * Cek apakah putaran ini ditugaskan ke petugas tertentu.
      */
-    public function isRoundAssignedTo(ScheduleDetail $detail, int $round, int $satpamId): bool
+    public function isRoundAssignedTo(ScheduleDetail $detail, int $round, int $satpamId, Carbon|string|null $date = null): bool
     {
-        return $this->getAssignedSatpamId($detail, $round) === $satpamId;
+        return $this->getAssignedSatpamId($detail, $round, $date) === $satpamId;
     }
 
     /**
      * Dapatkan nama dan role penanggung jawab putaran tertentu.
      */
-    public function getAssignedSatpamInfo(ScheduleDetail $detail, int $round): array
+    public function getAssignedSatpamInfo(ScheduleDetail $detail, int $round, Carbon|string|null $date = null): array
     {
         $katimId = $detail->schedule?->katim_id;
 
         if ($katimId) {
-            if ($round % 2 === 1) {
+            $day = $this->resolveDayNumber($detail, $date);
+            $isOddDay = ($day % 2 === 1);
+            $isOddRound = ($round % 2 === 1);
+            $assignToSatpam = ($isOddDay === $isOddRound);
+
+            if ($assignToSatpam) {
                 return [
                     'id'         => $detail->satpam_id,
                     'name'       => $detail->satpam?->user?->name ?? 'Satpam',

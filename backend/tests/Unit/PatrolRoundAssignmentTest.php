@@ -128,5 +128,45 @@ class PatrolRoundAssignmentTest extends TestCase
         $this->assertEquals('satpam', $assignedRole);
         $this->assertEquals('Satpam', $assignedRoleLabel);
     }
+
+    /**
+     * Uji pembagian putaran saat tanggal genap (misal 2 Oktober 2026):
+     * - Putaran 1 & 3: KAT
+     * - Putaran 2 & 4: Satpam
+     */
+    public function test_round_assignment_with_katim_on_even_day_swaps_to_katim_first(): void
+    {
+        $service = new PatrolRoundService();
+
+        $schedule = new Schedule();
+        $schedule->id = 10;
+        $schedule->katim_id = 99; // ID KAT
+        $schedule->start_date = '2026-10-02'; // Tanggal genap (2)
+
+        $detail = new ScheduleDetail();
+        $detail->id = 1;
+        $detail->satpam_id = 55; // ID Satpam
+        $detail->setRelation('schedule', $schedule);
+
+        // Putaran 1 -> KAT (99)
+        $this->assertEquals(99, $service->getAssignedSatpamId($detail, 1));
+        $this->assertTrue($service->isRoundAssignedTo($detail, 1, 99));
+        $this->assertFalse($service->isRoundAssignedTo($detail, 1, 55));
+
+        // Putaran 2 -> Satpam (55)
+        $this->assertEquals(55, $service->getAssignedSatpamId($detail, 2));
+        $this->assertTrue($service->isRoundAssignedTo($detail, 2, 55));
+        $this->assertFalse($service->isRoundAssignedTo($detail, 2, 99));
+
+        // Putaran 3 -> KAT (99)
+        $this->assertEquals(99, $service->getAssignedSatpamId($detail, 3));
+        $this->assertTrue($service->isRoundAssignedTo($detail, 3, 99));
+        $this->assertFalse($service->isRoundAssignedTo($detail, 3, 55));
+
+        // Putaran 4 -> Satpam (55)
+        $this->assertEquals(55, $service->getAssignedSatpamId($detail, 4));
+        $this->assertTrue($service->isRoundAssignedTo($detail, 4, 55));
+        $this->assertFalse($service->isRoundAssignedTo($detail, 4, 99));
+    }
 }
 

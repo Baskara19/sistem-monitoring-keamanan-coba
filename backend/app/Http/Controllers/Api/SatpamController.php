@@ -46,18 +46,40 @@ public function summary(Request $request)
     |--------------------------------------------------------------------------
     */
 
+    $today = today();
     $scheduleDetails = ScheduleDetail::with('schedule')
         ->where(function ($query) use ($satpam) {
             $query->where('satpam_id', $satpam->id)
                   ->orWhereHas('schedule', fn ($q) => $q->where('katim_id', $satpam->id));
         })
-        ->whereHas('schedule', function ($query) {
+        ->whereHas('schedule', function ($query) use ($today) {
             $query->where('status', 'aktif')
-                ->whereDate('start_date', '<=', today())
-                ->whereDate('end_date', '>=', today()->copy()->subDay());
+                ->whereDate('start_date', '<=', $today)
+                ->whereDate('end_date', '>=', $today);
         })
         ->orderBy('sequence_order')
         ->get();
+
+    // Jika hari ini kosong dan sedang dini hari (jam < 9), periksa shift Malam kemarin
+    if ($scheduleDetails->isEmpty() && now()->hour < 9) {
+        $yesterday = today()->subDay();
+        $yesterdayDetails = ScheduleDetail::with('schedule')
+            ->where(function ($query) use ($satpam) {
+                $query->where('satpam_id', $satpam->id)
+                      ->orWhereHas('schedule', fn ($q) => $q->where('katim_id', $satpam->id));
+            })
+            ->whereHas('schedule', function ($query) use ($yesterday) {
+                $query->where('status', 'aktif')
+                    ->whereDate('start_date', '<=', $yesterday)
+                    ->whereDate('end_date', '>=', $yesterday);
+            })
+            ->orderBy('sequence_order')
+            ->get();
+
+        if ($yesterdayDetails->isNotEmpty() && $yesterdayDetails->first()->shift_label === 'Malam') {
+            $scheduleDetails = $yesterdayDetails;
+        }
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -546,8 +568,8 @@ public function summary(Request $request)
             }
 
             // Validasi penugasan langsung pada putaran ini
-            if (! $roundService->isRoundAssignedTo($detail, $round, $satpam->id)) {
-                $assignedInfo = $roundService->getAssignedSatpamInfo($detail, $round);
+            if (! $roundService->isRoundAssignedTo($detail, $round, $satpam->id, $shiftAnchor)) {
+                $assignedInfo = $roundService->getAssignedSatpamInfo($detail, $round, $shiftAnchor);
                 $assignedRole = ($assignedInfo['role'] ?? '') === 'katim' ? 'KAT' : 'Satpam';
                 $assignedName = $assignedInfo['name'] ?? '-';
                 return [
@@ -615,28 +637,44 @@ public function schedule(Request $request)
         'date' => 'nullable|date',
     ]);
 
-    $date = $request->filled('date')
+    $isExplicitDate = $request->filled('date');
+    $date = $isExplicitDate
         ? \Carbon\Carbon::parse($request->input('date'))->startOfDay()
         : today();
 
-    // Sertakan shift Malam dari kemarin agar satpam yang bertugas dini hari
-    // tetap bisa melihat jadwal shift-nya.
-    $scheduleDetails = ScheduleDetail::with([
-        'schedule.katim.user',
-        'satpam.user',
-        'patrolPoint:id,name,location_address',
-    ])
-        ->where(function ($query) use ($satpam) {
-            $query->where('satpam_id', $satpam->id)
-                  ->orWhereHas('schedule', fn ($sq) => $sq->where('katim_id', $satpam->id));
-        })
-        ->whereHas('schedule', function ($query) use ($date) {
-            $query->where('status', 'aktif')
-                ->whereDate('start_date', '<=', $date)
-                ->whereDate('end_date', '>=', $date->copy()->subDay());
-        })
-        ->orderBy('sequence_order')
-        ->get();
+    $fetchScheduleDetails = function (\Carbon\Carbon $targetDate) use ($satpam) {
+        return ScheduleDetail::with([
+            'schedule.katim.user',
+            'satpam.user',
+            'patrolPoint:id,name,location_address',
+        ])
+            ->where(function ($query) use ($satpam) {
+                $query->where('satpam_id', $satpam->id)
+                      ->orWhereHas('schedule', fn ($sq) => $sq->where('katim_id', $satpam->id));
+            })
+            ->whereHas('schedule', function ($query) use ($targetDate) {
+                $query->where('status', 'aktif')
+                    ->whereDate('start_date', '<=', $targetDate)
+                    ->whereDate('end_date', '>=', $targetDate);
+            })
+            ->orderBy('sequence_order')
+            ->get();
+    };
+
+    $scheduleDetails = $fetchScheduleDetails($date);
+
+    // Fallback hanya saat membuka hari ini tanpa parameter tanggal eksplisit,
+    // dan sedang di waktu dini hari (sebelum jam 09:00).
+    // Jika hari ini tidak ada jadwal, cek apakah kemarin ada shift Malam yang masih berjalan.
+    if ($scheduleDetails->isEmpty() && ! $isExplicitDate && now()->hour < 9) {
+        $yesterday = $date->copy()->subDay();
+        $yesterdayDetails = $fetchScheduleDetails($yesterday);
+
+        if ($yesterdayDetails->isNotEmpty() && $yesterdayDetails->first()->shift_label === 'Malam') {
+            $scheduleDetails = $yesterdayDetails;
+            $date = $yesterday;
+        }
+    }
 
     if ($scheduleDetails->isEmpty()) {
         return response()->json([
@@ -685,23 +723,23 @@ public function schedule(Request $request)
     // Bangun response berdasarkan 4 putaran.
     // Masing-masing petugas hanya menerima putaran yang menjadi tugasnya (atau titik handover yang diterima).
     $rounds = collect($roundTimes)
-        ->filter(function ($targetTime, $roundNumber) use ($scheduleDetails, $handoversReceived, $satpam, $roundService) {
+        ->filter(function ($targetTime, $roundNumber) use ($scheduleDetails, $handoversReceived, $satpam, $roundService, $date) {
             $firstDetail = $scheduleDetails->first();
             if (! $firstDetail) {
                 return false;
             }
 
-            $isAssigned = $roundService->isRoundAssignedTo($firstDetail, $roundNumber, $satpam->id);
+            $isAssigned = $roundService->isRoundAssignedTo($firstDetail, $roundNumber, $satpam->id, $date);
             $hasReceivedHandover = $handoversReceived->has($roundNumber);
 
             return $isAssigned || $hasReceivedHandover;
         })
         ->map(function ($targetTime, $roundNumber) use (
-            $scheduleDetails, $allLogs, $handoversSent, $handoversReceived, $satpam, $roundService
+            $scheduleDetails, $allLogs, $handoversSent, $handoversReceived, $satpam, $roundService, $date
         ) {
             $firstDetail = $scheduleDetails->first();
-            $assignedInfo = $firstDetail ? $roundService->getAssignedSatpamInfo($firstDetail, $roundNumber) : null;
-            $isMyRound = $firstDetail ? $roundService->isRoundAssignedTo($firstDetail, $roundNumber, $satpam->id) : true;
+            $assignedInfo = $firstDetail ? $roundService->getAssignedSatpamInfo($firstDetail, $roundNumber, $date) : null;
+            $isMyRound = $firstDetail ? $roundService->isRoundAssignedTo($firstDetail, $roundNumber, $satpam->id, $date) : true;
 
             $myPoints = $isMyRound
                 ? $scheduleDetails->map(function (ScheduleDetail $detail) use ($roundNumber, $allLogs, $handoversSent, $satpam) {
@@ -938,6 +976,7 @@ public function history(Request $request)
         $firstDetail  = $scheduleDetails->first();
         $roundService = new PatrolRoundService();
 
+        $activeAnchor = today();
         if ($firstDetail) {
             foreach ([today(), today()->copy()->subDay()] as $anchor) {
                 [$windowStart, $windowEnd] = $roundService->shiftWindow(
@@ -947,6 +986,7 @@ public function history(Request $request)
                 );
 
                 if (now()->between($windowStart, $windowEnd)) {
+                    $activeAnchor = $anchor;
                     $currentRound = $roundService->resolveRound(
                         $firstDetail->shift_label,
                         $anchor,
@@ -977,7 +1017,7 @@ public function history(Request $request)
 
         $excludeDetailIds = $processedDetailIds->concat($handedOverDetailIds)->unique();
 
-        $isMyRound = $firstDetail ? $roundService->isRoundAssignedTo($firstDetail, $currentRound, $satpam->id) : true;
+        $isMyRound = $firstDetail ? $roundService->isRoundAssignedTo($firstDetail, $currentRound, $satpam->id, $activeAnchor) : true;
 
         $myRemainingPoints = $isMyRound
             ? $scheduleDetails
