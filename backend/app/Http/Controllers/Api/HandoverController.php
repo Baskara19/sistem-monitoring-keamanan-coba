@@ -51,25 +51,39 @@ class HandoverController extends Controller
         }
 
         $myShiftLabel = $mySchedule->shift_label;
-        $locationId   = $request->user()->location_id;
+        $locationId   = $satpam->user?->location_id ?? $request->user()->location_id;
 
-        // Cari rekan satpam yang memiliki jadwal aktif di shift yang sama dan lokasi yang sama
-        $colleagues = Satpam::with('user')
+        // Cari rekan satpam yang memiliki jadwal aktif hari ini di lokasi yang sama dan shift yang sama
+        $colleagues = Satpam::with(['user', 'scheduleDetails.schedule'])
             ->where('id', '!=', $satpam->id)
             ->whereHas('user', function ($q) use ($locationId) {
                 if ($locationId) {
                     $q->where('location_id', $locationId);
                 }
             })
-            ->whereHas('scheduleDetails', function ($q) use ($myShiftLabel) {
-                $q->where('shift_label', $myShiftLabel)
-                    ->whereHas('schedule', function ($q2) {
-                        $q2->where('status', 'aktif')
-                            ->whereDate('start_date', '<=', today())
-                            ->whereDate('end_date', '>=', today()->copy()->subDay());
-                    });
+            ->whereHas('scheduleDetails.schedule', function ($q) {
+                $q->where('status', 'aktif')
+                    ->whereDate('start_date', '<=', today())
+                    ->whereDate('end_date', '>=', today()->copy()->subDay());
             })
             ->get()
+            ->filter(function ($s) use ($myShiftLabel) {
+                // Cocokkan shift_label (yang merupakan accessor model)
+                return $s->scheduleDetails->contains(function ($sd) use ($myShiftLabel) {
+                    $sch = $sd->schedule;
+                    if (! $sch || $sch->status !== 'aktif') {
+                        return false;
+                    }
+                    $today = today();
+                    $startDate = Carbon::parse($sch->start_date)->startOfDay();
+                    $endDate   = Carbon::parse($sch->end_date)->endOfDay();
+                    if ($today->lt($startDate) || $today->gt($endDate->copy()->addDay())) {
+                        return false;
+                    }
+
+                    return $sd->shift_label === $myShiftLabel;
+                });
+            })
             ->map(function ($s) {
                 return [
                     'id'            => $s->id,
@@ -207,9 +221,7 @@ class HandoverController extends Controller
                 ];
             });
 
-        return response()->json([
-            'pending_handovers' => $pending,
-        ]);
+        return response()->json($pending);
     }
 
     /**

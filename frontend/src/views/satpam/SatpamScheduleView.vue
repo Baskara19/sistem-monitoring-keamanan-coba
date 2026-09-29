@@ -651,7 +651,7 @@ const cancellingHandoverId = ref(null);
 const fetchPendingHandovers = async () => {
   try {
     const response = await axios.get(`${API_BASE}/satpam/handovers/pending`, getAuthHeaders());
-    pendingHandovers.value = response.data ?? [];
+    pendingHandovers.value = Array.isArray(response.data) ? response.data : (response.data?.pending_handovers ?? []);
   } catch (err) {
     console.error("Gagal mengambil pending handovers:", err);
   }

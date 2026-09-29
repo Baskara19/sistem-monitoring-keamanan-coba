@@ -384,7 +384,7 @@ const fetchPendingHandovers = async () => {
       "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/handovers/pending",
       getAuthHeaders()
     );
-    pendingHandovers.value = response.data ?? [];
+    pendingHandovers.value = Array.isArray(response.data) ? response.data : (response.data?.pending_handovers ?? []);
   } catch (err) {
     console.error("Gagal mengambil pending handovers:", err);
   }
