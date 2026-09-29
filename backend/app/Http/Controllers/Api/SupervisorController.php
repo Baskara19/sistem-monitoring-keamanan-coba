@@ -862,6 +862,8 @@ public function reports(Request $request)
     }
     $query = PatrolLog::with([
         'satpam.user',
+        'delegatedFromSatpam.user',
+        'handover',
         'patrolPoint',
         'scheduleDetail.schedule',
         'scheduleDetail.patrolPoint',
@@ -927,9 +929,10 @@ public function reports(Request $request)
         if ($currentDetail?->schedule_id) {
             // Kelompokkan berdasarkan (schedule_detail_id, patrol_round) agar
             // timeline bisa ditampilkan per putaran, bukan flat per titik.
-            $scheduleLogs = PatrolLog::whereHas('scheduleDetail', function ($query) use ($currentDetail) {
-                $query->where('schedule_id', $currentDetail->schedule_id);
-            })
+            $scheduleLogs = PatrolLog::with(['delegatedFromSatpam.user', 'handover'])
+                ->whereHas('scheduleDetail', function ($query) use ($currentDetail) {
+                    $query->where('schedule_id', $currentDetail->schedule_id);
+                })
                 ->orderBy('scan_time')
                 ->get()
                 ->groupBy(fn ($l) => $l->schedule_detail_id . '-' . ($l->patrol_round ?? 0));
@@ -958,6 +961,8 @@ public function reports(Request $request)
                     'status'             => $pointLog?->scan_status ?? 'belum',
                     'note'               => $pointLog?->note,
                     'patrol_log_id'      => $pointLog?->id,
+                    'is_handover'        => $pointLog?->delegated_from_satpam_id !== null,
+                    'delegated_from'     => $pointLog?->delegatedFromSatpam?->user?->name,
                 ];
             })->values();
 
@@ -974,6 +979,11 @@ public function reports(Request $request)
             'satpam_name' => $log->satpam?->user?->name ?? '-',
 
             'nipkwt' => $log->satpam?->user?->nipkwt ?? '-',
+
+            'delegated_from_satpam_id'   => $log->delegated_from_satpam_id,
+            'delegated_from_satpam_name' => $log->delegatedFromSatpam?->user?->name,
+            'is_handover'                => $log->delegated_from_satpam_id !== null,
+            'handover_reason'            => $log->handover?->reason,
 
             'patrol_point' => $log->patrolPoint?->name ?? '-',
 

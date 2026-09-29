@@ -32,4 +32,16 @@ class Satpam extends Model
     {
         return $this->hasMany(ScheduleDetail::class);
     }
+
+    // Permintaan handover yang diajukan oleh satpam ini
+    public function handoversSent()
+    {
+        return $this->hasMany(PatrolHandover::class, 'from_satpam_id');
+    }
+
+    // Permintaan handover yang ditujukan kepada satpam ini
+    public function handoversReceived()
+    {
+        return $this->hasMany(PatrolHandover::class, 'to_satpam_id');
+    }
 }

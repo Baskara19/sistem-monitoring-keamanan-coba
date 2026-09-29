@@ -90,6 +90,56 @@
           </div>
         </section>
 
+        <!-- Incoming Handover Requests Banner -->
+        <section v-if="pendingHandovers.length > 0" class="pending-handover-section">
+          <div class="pending-handover-banner" v-for="item in pendingHandovers" :key="item.id">
+            <div class="pending-banner-header">
+              <div class="pending-banner-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17 1l4 4-4 4"/>
+                  <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                  <path d="M7 23l-4-4 4-4"/>
+                  <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                </svg>
+              </div>
+              <div class="pending-banner-title">
+                <span class="pending-banner-tag">Permintaan Handover Masuk</span>
+                <h4>Dari: {{ item.from_satpam_name }}</h4>
+              </div>
+            </div>
+
+            <div class="pending-banner-body">
+              <div class="pending-info-row">
+                <span>Titik Patroli:</span>
+                <strong>{{ item.patrol_point_name }} (Putaran {{ item.patrol_round }})</strong>
+              </div>
+              <div class="pending-info-row" v-if="item.reason">
+                <span>Alasan:</span>
+                <em>"{{ item.reason }}"</em>
+              </div>
+            </div>
+
+            <div class="pending-banner-actions">
+              <button
+                type="button"
+                class="btn-respond-accept"
+                :disabled="respondingId === item.id"
+                @click="respondHandover(item.id, 'accept')"
+              >
+                {{ respondingId === item.id ? 'Memproses...' : 'Terima Handover' }}
+              </button>
+              <button
+                type="button"
+                class="btn-respond-reject"
+                :disabled="respondingId === item.id"
+                @click="respondHandover(item.id, 'reject')"
+              >
+                Tolak
+              </button>
+            </div>
+          </div>
+        </section>
+
         <!-- Round Tabs Selector (4 Putaran) -->
         <section v-if="isGroupedRound" class="round-tabs-section">
           <div class="round-tabs">
@@ -138,7 +188,7 @@
               </div>
 
               <!-- Card -->
-              <div class="patrol-card">
+              <div class="patrol-card" :class="{ 'card-handover-accepted': point.handover?.status === 'accepted' }">
                 <div class="patrol-card-top">
                   <div class="patrol-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -195,11 +245,129 @@
                     <span v-else class="text-not-scanned">Belum</span>
                   </div>
                 </div>
+
+                <!-- Handover Status Banner inside Card -->
+                <div v-if="point.handover" class="handover-status-box" :class="point.handover.status">
+                  <div class="handover-meta">
+                    <span class="handover-pill" :class="point.handover.is_sender ? (point.handover.status === 'accepted' ? 'accepted' : 'pending') : 'received'">
+                      {{ point.handover.is_sender ? (point.handover.status === 'accepted' ? 'Handover Diserahkan' : 'Handover Diajukan') : 'Titik Handover Masuk' }}
+                    </span>
+                    <p class="handover-desc" v-if="point.handover.is_sender">
+                      {{ point.handover.status === 'accepted' ? 'Dialihkan ke' : 'Menunggu respon' }}: <strong>{{ point.handover.partner_name }}</strong>
+                    </p>
+                    <p class="handover-desc" v-else>
+                      Mewakili rekan: <strong>{{ point.handover.partner_name }}</strong>
+                    </p>
+                    <small class="handover-reason" v-if="point.handover.reason">
+                      Alasan: "{{ point.handover.reason }}"
+                    </small>
+                    <small class="handover-scanned-info" v-if="point.scanned_by_partner">
+                      ✓ Telah discan oleh {{ point.scanned_by_partner }}
+                    </small>
+                  </div>
+
+                  <!-- Tombol Batal jika pengaju & masih pending -->
+                  <button
+                    v-if="point.handover.is_sender && point.handover.status === 'pending'"
+                    type="button"
+                    class="btn-cancel-handover"
+                    @click="cancelHandover(point.handover.id)"
+                    :disabled="cancellingHandoverId === point.handover.id"
+                  >
+                    {{ cancellingHandoverId === point.handover.id ? '...' : 'Batal' }}
+                  </button>
+                </div>
+
+                <!-- Tombol Ajukan Handover jika titik belum di-scan & belum ada handover -->
+                <div
+                  v-else-if="isToday && isGroupedRound && (!point.scan_status || point.scan_status === 'belum')"
+                  class="handover-action-row"
+                >
+                  <button
+                    type="button"
+                    class="btn-trigger-handover"
+                    @click="openHandoverModal(point)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M17 1l4 4-4 4"/>
+                      <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                      <path d="M7 23l-4-4 4-4"/>
+                      <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                    </svg>
+                    Handover Titik
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </section>
       </template>
+
+      <!-- Modal Dialog Handover -->
+      <div v-if="showHandoverModal" class="modal-overlay" @click.self="closeHandoverModal">
+        <div class="modal-box">
+          <div class="modal-header">
+            <div>
+              <h3>Handover Titik Patroli</h3>
+              <p>Alihkan tugas scan titik ini kepada rekan satpam pada shift yang sama.</p>
+            </div>
+            <button type="button" class="modal-close-btn" @click="closeHandoverModal">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <div class="modal-point-summary">
+              <span class="summary-round">Putaran {{ currentRoundData?.round }}</span>
+              <h4>{{ selectedPointForHandover?.patrol_point_name || selectedPointForHandover?.patrol_point?.name }}</h4>
+              <span class="summary-seq">Titik Urutan #{{ selectedPointForHandover?.sequence_order }}</span>
+            </div>
+
+            <div v-if="loadingColleagues" class="modal-colleague-loading">
+              Memuat daftar rekan satpam...
+            </div>
+            <div v-else-if="colleagues.length === 0" class="modal-colleague-empty">
+              <p>Tidak ada rekan satpam lain yang sedang bertugas pada shift dan lokasi yang sama hari ini.</p>
+            </div>
+            <div v-else class="form-group">
+              <label for="handover-colleague">Pilih Rekan Satpam Penerima</label>
+              <select id="handover-colleague" v-model="handoverForm.to_satpam_id" class="form-select">
+                <option value="" disabled>-- Pilih Rekan Satpam --</option>
+                <option v-for="c in colleagues" :key="c.id" :value="c.id">
+                  {{ c.name }} (NIPKWT: {{ c.nipkwt || '-' }})
+                </option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="handover-reason">Alasan Handover</label>
+              <textarea
+                id="handover-reason"
+                v-model="handoverForm.reason"
+                class="form-textarea"
+                rows="3"
+                placeholder="Contoh: Mengamankan gerbang / kendala darurat / izin mendesak"
+              ></textarea>
+            </div>
+
+            <div v-if="handoverError" class="modal-error-alert">
+              {{ handoverError }}
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-modal-cancel" @click="closeHandoverModal">
+              Batal
+            </button>
+            <button
+              type="button"
+              class="btn-modal-submit"
+              :disabled="submittingHandover || !handoverForm.to_satpam_id || !handoverForm.reason.trim()"
+              @click="submitHandover"
+            >
+              {{ submittingHandover ? 'Mengirim...' : 'Kirim Permintaan' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
 
     <!-- Bottom Navigation -->
@@ -438,6 +606,8 @@ const formatTime = (time) => {
 |--------------------------------------------------------------------------
 */
 
+const API_BASE = import.meta.env.VITE_API_URL || "https://sistem-monitoring-keamanan-be.onrender.com/api";
+
 const goBack = () => {
   router.push({ name: "satpam-dashboard" });
 };
@@ -463,12 +633,141 @@ const logout = () => {
 
 /*
 |--------------------------------------------------------------------------
+| Handover Feature
+|--------------------------------------------------------------------------
+*/
+
+const pendingHandovers = ref([]);
+const colleagues = ref([]);
+const loadingColleagues = ref(false);
+const showHandoverModal = ref(false);
+const selectedPointForHandover = ref(null);
+const handoverForm = ref({ to_satpam_id: "", reason: "" });
+const submittingHandover = ref(false);
+const handoverError = ref("");
+const respondingId = ref(null);
+const cancellingHandoverId = ref(null);
+
+const fetchPendingHandovers = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/satpam/handovers/pending`, getAuthHeaders());
+    pendingHandovers.value = response.data ?? [];
+  } catch (err) {
+    console.error("Gagal mengambil pending handovers:", err);
+  }
+};
+
+const fetchColleagues = async () => {
+  loadingColleagues.value = true;
+  try {
+    const response = await axios.get(`${API_BASE}/satpam/handovers/colleagues`, getAuthHeaders());
+    colleagues.value = response.data.colleagues ?? [];
+  } catch (err) {
+    console.error("Gagal mengambil rekan satpam:", err);
+  } finally {
+    loadingColleagues.value = false;
+  }
+};
+
+const openHandoverModal = (point) => {
+  selectedPointForHandover.value = point;
+  handoverForm.value = { to_satpam_id: "", reason: "" };
+  handoverError.value = "";
+  showHandoverModal.value = true;
+  if (colleagues.value.length === 0) {
+    fetchColleagues();
+  }
+};
+
+const closeHandoverModal = () => {
+  showHandoverModal.value = false;
+  selectedPointForHandover.value = null;
+  handoverError.value = "";
+};
+
+const submitHandover = async () => {
+  if (!selectedPointForHandover.value) return;
+  if (!handoverForm.value.to_satpam_id) {
+    handoverError.value = "Silakan pilih rekan satpam penerima.";
+    return;
+  }
+  if (!handoverForm.value.reason.trim()) {
+    handoverError.value = "Silakan isi alasan handover.";
+    return;
+  }
+
+  submittingHandover.value = true;
+  handoverError.value = "";
+  try {
+    const round = currentRoundData.value?.round || 1;
+    await axios.post(
+      `${API_BASE}/satpam/handovers/request`,
+      {
+        schedule_detail_id: selectedPointForHandover.value.schedule_detail_id,
+        patrol_point_id: selectedPointForHandover.value.patrol_point_id,
+        patrol_round: round,
+        to_satpam_id: handoverForm.value.to_satpam_id,
+        reason: handoverForm.value.reason.trim(),
+      },
+      getAuthHeaders()
+    );
+
+    closeHandoverModal();
+    await fetchSchedule();
+  } catch (err) {
+    console.error("Gagal mengajukan handover:", err);
+    handoverError.value = err.response?.data?.message || "Gagal mengajukan handover. Silakan coba lagi.";
+  } finally {
+    submittingHandover.value = false;
+  }
+};
+
+const respondHandover = async (id, action) => {
+  respondingId.value = id;
+  try {
+    await axios.post(
+      `${API_BASE}/satpam/handovers/${id}/respond`,
+      { action },
+      getAuthHeaders()
+    );
+    await Promise.all([fetchPendingHandovers(), fetchSchedule()]);
+  } catch (err) {
+    console.error("Gagal merespon handover:", err);
+    alert(err.response?.data?.message || "Gagal memproses respon handover.");
+  } finally {
+    respondingId.value = null;
+  }
+};
+
+const cancelHandover = async (id) => {
+  if (!confirm("Apakah Anda yakin ingin membatalkan pengajuan handover titik ini?")) {
+    return;
+  }
+  cancellingHandoverId.value = id;
+  try {
+    await axios.post(
+      `${API_BASE}/satpam/handovers/${id}/cancel`,
+      {},
+      getAuthHeaders()
+    );
+    await fetchSchedule();
+  } catch (err) {
+    console.error("Gagal membatalkan handover:", err);
+    alert(err.response?.data?.message || "Gagal membatalkan handover.");
+  } finally {
+    cancellingHandoverId.value = null;
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
 | Mounted
 |--------------------------------------------------------------------------
 */
 
 onMounted(() => {
   fetchSchedule();
+  fetchPendingHandovers();
 });
 </script>
 
@@ -1057,6 +1356,472 @@ onMounted(() => {
 .scan-navigation-button span {
   margin-top: 1px;
   color: #e87500;
+}
+
+/* =========================================
+   HANDOVER STYLING
+========================================= */
+
+.pending-handover-section {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pending-handover-banner {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  border: 1.5px solid #fed7aa;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 4px 14px rgba(232, 117, 0, 0.08);
+}
+
+.pending-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pending-banner-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #ea580c;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pending-banner-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pending-banner-title h4 {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.pending-banner-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #ea580c;
+  letter-spacing: 0.5px;
+}
+
+.pending-banner-body {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pending-info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.pending-info-row strong {
+  color: #1f2937;
+}
+
+.pending-info-row em {
+  font-style: italic;
+  color: #d97706;
+}
+
+.pending-banner-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.btn-respond-accept {
+  flex: 1;
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-respond-accept:hover:not(:disabled) {
+  background: #c2410c;
+}
+
+.btn-respond-reject {
+  background: #ffffff;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-respond-reject:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+/* Card Handover States */
+.card-handover-accepted {
+  border-left: 4px solid #2563eb;
+}
+
+.handover-status-box {
+  margin-top: 11px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.handover-status-box.pending {
+  background: #fffbeb;
+  border: 1px dashed #fde68a;
+}
+
+.handover-status-box.accepted {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.handover-meta {
+  flex: 1;
+}
+
+.handover-pill {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.handover-pill.pending {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.handover-pill.accepted {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.handover-pill.received {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.handover-desc {
+  margin: 0;
+  font-size: 11px;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+.handover-reason {
+  display: block;
+  font-size: 10px;
+  color: #6b7280;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.handover-scanned-info {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #16a34a;
+  margin-top: 4px;
+}
+
+.btn-cancel-handover {
+  align-self: center;
+  background: #ffffff;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-cancel-handover:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.handover-action-row {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-trigger-handover {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  border-radius: 8px;
+  padding: 6px 11px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-trigger-handover svg {
+  width: 13px;
+  height: 13px;
+  color: #e87500;
+}
+
+.btn-trigger-handover:hover {
+  border-color: #e87500;
+  color: #e87500;
+  background: #fff8f0;
+}
+
+/* Modal Styling */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal-box {
+  background: #ffffff;
+  width: 100%;
+  max-width: 420px;
+  border-radius: 18px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.modal-header p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.modal-close-btn {
+  background: #f1f5f9;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-point-summary {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.summary-round {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  color: #ea580c;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.modal-point-summary h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #1e293b;
+  font-weight: 700;
+}
+
+.summary-seq {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.modal-colleague-loading,
+.modal-colleague-empty {
+  font-size: 11px;
+  color: #64748b;
+  padding: 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.modal-colleague-empty {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.form-select,
+.form-textarea {
+  width: 100%;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.form-select:focus,
+.form-textarea:focus {
+  border-color: #ea580c;
+}
+
+.form-textarea {
+  resize: vertical;
+}
+
+.modal-error-alert {
+  padding: 8px 12px;
+  background: #fee2e2;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 11px;
+}
+
+.modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-modal-cancel {
+  background: #f1f5f9;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+
+.btn-modal-submit {
+  background: #ea580c;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-modal-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-modal-submit:hover:not(:disabled) {
+  background: #c2410c;
 }
 
 /* =========================================

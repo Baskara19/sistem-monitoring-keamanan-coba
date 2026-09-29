@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\MonitoringController;
 use App\Http\Controllers\Api\SatpamController;
 use App\Http\Controllers\Api\SupervisorController;
 use App\Http\Controllers\Api\LocationController;
+use App\Http\Controllers\Api\HandoverController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -65,6 +66,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/reports', [SatpamController::class, 'createReport']);
         Route::get('/history', [SatpamController::class, 'history']);
         Route::get('/schedule', [SatpamController::class, 'schedule']);
+
+        // Handover routes
+        Route::get('/handovers/colleagues', [HandoverController::class, 'colleagues']);
+        Route::post('/handovers/request', [HandoverController::class, 'requestHandover']);
+        Route::get('/handovers/pending', [HandoverController::class, 'pendingHandovers']);
+        Route::post('/handovers/{id}/respond', [HandoverController::class, 'respondHandover']);
+        Route::get('/handovers/my-requests', [HandoverController::class, 'myRequests']);
+        Route::post('/handovers/{id}/cancel', [HandoverController::class, 'cancelHandover']);
     });
 
     // Supervisor routes — hanya user dengan role 'supervisor' yang boleh akses

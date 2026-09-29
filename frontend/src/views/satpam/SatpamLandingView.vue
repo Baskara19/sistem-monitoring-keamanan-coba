@@ -34,6 +34,23 @@
         </div>
       </section>
 
+      <!-- Pending Handover Alert Banner -->
+      <section v-if="pendingHandovers.length > 0" class="handover-notice-card" @click="goToSchedule">
+        <div class="handover-notice-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 1l4 4-4 4"/>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+            <path d="M7 23l-4-4 4-4"/>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+        </div>
+        <div class="handover-notice-content">
+          <h4>{{ pendingHandovers.length }} Permintaan Handover Masuk</h4>
+          <p>{{ pendingHandovers[0].from_satpam_name }} meminta Anda menggantikan scan titik. Ketuk untuk merespon.</p>
+        </div>
+        <span class="handover-notice-arrow">→</span>
+      </section>
+
       <!-- Quick Actions -->
       <section class="section">
         <div class="section-heading">
@@ -359,14 +376,32 @@ const fetchSummary = async () => {
   }
 };
 
+const pendingHandovers = ref([]);
+
+const fetchPendingHandovers = async () => {
+  try {
+    const response = await axios.get(
+      "https://sistem-monitoring-keamanan-be.onrender.com/api/satpam/handovers/pending",
+      getAuthHeaders()
+    );
+    pendingHandovers.value = response.data ?? [];
+  } catch (err) {
+    console.error("Gagal mengambil pending handovers:", err);
+  }
+};
+
 let summaryInterval = null;
 
 onMounted(() => {
   fetchSummary();
+  fetchPendingHandovers();
 
   // Refresh berkala biar badge shift otomatis muncul/hilang
   // begitu jamnya masuk/lewat dari jendela shift saat ini.
-  summaryInterval = setInterval(fetchSummary, 30000);
+  summaryInterval = setInterval(() => {
+    fetchSummary();
+    fetchPendingHandovers();
+  }, 30000);
 });
 
 onBeforeUnmount(() => {
@@ -573,6 +608,77 @@ const currentDate = computed(() => {
   height: 6px;
   background: #e87500;
   border-radius: 50%;
+}
+
+/* =========================================
+   HANDOVER NOTICE CARD
+========================================= */
+
+.handover-notice-card {
+  margin-top: 16px;
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  color: #ffffff;
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(234, 88, 12, 0.25);
+  transition: transform 0.2s, box-shadow 0.2s;
+  animation: pulseNotice 2.5s infinite;
+}
+
+@keyframes pulseNotice {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.015);
+  }
+}
+
+.handover-notice-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(234, 88, 12, 0.35);
+}
+
+.handover-notice-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.handover-notice-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.handover-notice-content {
+  flex: 1;
+}
+
+.handover-notice-content h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.handover-notice-content p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  opacity: 0.9;
+  line-height: 1.3;
+}
+
+.handover-notice-arrow {
+  font-size: 18px;
+  font-weight: 700;
 }
 
 /* =========================================

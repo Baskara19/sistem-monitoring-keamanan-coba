@@ -18,11 +18,15 @@ class PatrolLog extends Model
         'distance_from_point',
         'scan_status',
         'patrol_round',  // Putaran ke-berapa dalam shift (1–4)
+        'delegated_from_satpam_id',
+        'patrol_handover_id',
         'note',
     ];
 
     protected $casts = [
         'patrol_round' => 'integer',
+        'delegated_from_satpam_id' => 'integer',
+        'patrol_handover_id' => 'integer',
     ];
 
     // Relasi ke satpam
@@ -53,5 +57,17 @@ class PatrolLog extends Model
     public function skipReason()
     {
         return $this->hasOne(SkipReason::class);
+    }
+
+    // Relasi ke satpam yang diwakili (handover)
+    public function delegatedFromSatpam()
+    {
+        return $this->belongsTo(Satpam::class, 'delegated_from_satpam_id');
+    }
+
+    // Relasi ke record handover
+    public function handover()
+    {
+        return $this->belongsTo(PatrolHandover::class, 'patrol_handover_id');
     }
 }

@@ -179,6 +179,17 @@
                     </strong>
                   </div>
 
+                  <div class="info-row" v-if="report.is_handover">
+                    <span>Handover</span>
+
+                    <div class="handover-detail-wrap">
+                      <span class="handover-pill-badge">Mewakili: {{ report.delegated_from_satpam_name || "-" }}</span>
+                      <small v-if="report.handover_reason" class="handover-reason-text">
+                        Alasan: "{{ report.handover_reason }}"
+                      </small>
+                    </div>
+                  </div>
+
                   <div class="info-row">
                     <span>NIPKWT</span>
 
@@ -480,6 +491,10 @@
                                 {{ formatStatus(item.status) }}
                               </span>
                             </div>
+
+                            <span v-if="item.is_handover" class="timeline-handover-badge">
+                              Handover dari: {{ item.delegated_from }}
+                            </span>
 
                             <div class="timeline-time">
                               <span v-if="item.scan_time">
@@ -1573,6 +1588,41 @@ onMounted(() => {
   color: var(--primary);
 
   font-size: 11px;
+}
+
+.handover-detail-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.handover-pill-badge {
+  display: inline-block;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.handover-reason-text {
+  font-size: 10px;
+  color: #64748b;
+  font-style: italic;
+}
+
+.timeline-handover-badge {
+  display: inline-block;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  margin-top: 4px;
 }
 
 /* =====================================================
