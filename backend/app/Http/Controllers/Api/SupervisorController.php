@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\PatrolHandover;
 use App\Models\PatrolLog;
 use App\Models\PatrolPoint;
 use App\Models\PatrolRoute;
@@ -419,6 +420,11 @@ class SupervisorController extends Controller
             ->whereBetween('scan_time', [$start, $end])
             ->get(['satpam_id', 'scan_status', 'scan_time']);
 
+        $handovers = PatrolHandover::query()
+            ->whereHas('fromSatpam.user', fn ($query) => $query->where('location_id', $locationId))
+            ->whereBetween('handover_date', [$start->toDateString(), $end->toDateString()])
+            ->get(['from_satpam_id', 'status']);
+
         // Hitung total schedule_details yang dijadwalkan per satpam di bulan ini.
         // "scheduled" = jumlah baris jadwal (titik patroli) yang ditetapkan ke satpam
         // pada jadwal yang periode-nya overlap dengan bulan yang dipilih.
@@ -446,21 +452,32 @@ class SupervisorController extends Controller
             ];
         };
 
-        $bySatpam = $satpams->map(function (Satpam $satpam) use ($logs, $countsFor, $scheduledCounts) {
+        $handoverCountsFor = function ($satpamHandovers) {
+            return [
+                'handover_accepted' => $satpamHandovers->where('status', 'accepted')->count(),
+            ];
+        };
+
+        $bySatpam = $satpams->map(function (Satpam $satpam) use ($logs, $handovers, $countsFor, $handoverCountsFor, $scheduledCounts) {
             $counts = $countsFor($logs->where('satpam_id', $satpam->id));
+            $handoverCounts = $handoverCountsFor($handovers->where('from_satpam_id', $satpam->id));
 
             return [
                 'id'        => $satpam->id,
                 'name'      => $satpam->user?->name ?? '-',
                 'scheduled' => (int) ($scheduledCounts[$satpam->id] ?? 0),
                 ...$counts,
+                ...$handoverCounts,
             ];
         })->values();
 
         $selectedId = $request->filled('satpam_id') ? (int) $request->input('satpam_id') : null;
         $selected = $selectedId ? $bySatpam->firstWhere('id', $selectedId) : null;
 
-        $monthly = $countsFor($logs);
+        $monthly = [
+            ...$countsFor($logs),
+            ...$handoverCountsFor($handovers),
+        ];
         $leader = fn ($key) => $bySatpam
             ->sortByDesc($key)
             ->first(fn ($row) => $row[$key] > 0) ?: null;
@@ -478,6 +495,7 @@ class SupervisorController extends Controller
                 'anomali' => $leader('anomali'),
                 'skip' => $leader('skip'),
                 'terlewat' => $leader('terlewat'),
+                'handover_accepted' => $leader('handover_accepted'),
             ],
             'satpams' => $bySatpam,
             'selected' => $selected,

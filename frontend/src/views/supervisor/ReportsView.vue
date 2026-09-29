@@ -662,6 +662,26 @@
               <strong>{{ recap.monthly.terlewat }}</strong></span
             >
           </div>
+          <div class="recap-handover-list">
+            <h4>Handover diterima per pemohon</h4>
+            <div v-if="handoverRequesters.length" class="recap-handover-table-wrap">
+              <table class="recap-handover-table">
+                <thead>
+                  <tr>
+                    <th>Nama satpam</th>
+                    <th>Diterima</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="satpam in handoverRequesters" :key="satpam.id">
+                    <td>{{ satpam.name }}</td>
+                    <td><strong>{{ satpam.handover_accepted }}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="recap-handover-empty">Tidak ada permintaan handover pada periode ini.</p>
+          </div>
         </section>
 
         <section class="print-recap-document" aria-label="Recap patroli untuk PDF">
@@ -771,6 +791,26 @@
                 </tbody>
               </table>
             </div>
+            <div class="print-leader-table">
+              <h3>Handover diterima per pemohon</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nama satpam</th>
+                    <th>Diterima</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="satpam in handoverRequesters" :key="`handover-${satpam.id}`">
+                    <td>{{ satpam.name }}</td>
+                    <td>{{ satpam.handover_accepted }}</td>
+                  </tr>
+                  <tr v-if="!handoverRequesters.length">
+                    <td colspan="2">Tidak ada handover yang diterima pada periode ini.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </article>
           <article
             v-for="(satpam, index) in recap.satpams"
@@ -792,7 +832,7 @@
               >
             </div>
             <div class="print-chart-block guard-chart">
-              <h3>Diagram Batang Status Scan</h3>
+              <h3>Diagram Batang Status Scan & Handover Diterima</h3>
 
               <!-- Diagram batang vertikal — dirender via SVG murni agar muncul saat cetak PDF -->
               <template v-for="vc in [verticalBarsFor(satpam)]" :key="satpam.id + '-vc'">
@@ -800,7 +840,7 @@
                   :viewBox="`0 0 ${vc.svgW} ${vc.svgH}`"
                   class="guard-bar-svg"
                   role="img"
-                  :aria-label="`Diagram batang status scan ${satpam.name}`"
+                  :aria-label="`Diagram status scan dan handover diterima ${satpam.name}`"
                 >
                   <!-- Grid lines + Y-axis ticks -->
                   <g v-for="tick in vc.ticks" :key="tick.v">
@@ -906,6 +946,8 @@
               ><span
                 >Tidak Terlaksana
                 <b>{{ Math.max(0, satpam.scheduled - satpam.total) }}</b></span
+              ><span
+                >Handover Diterima <b>{{ satpam.handover_accepted || 0 }}</b></span
               >
             </div>
           </article>
@@ -1022,11 +1064,24 @@ const recapFilters = ref({ bulan: reportNow.getMonth() + 1, tahun: reportNow.get
 const recapLoading = ref(false);
 const recapError = ref("");
 const recap = ref({
-  monthly: { total: 0, berhasil: 0, terlambat: 0, anomali: 0, skip: 0, terlewat: 0 },
+  monthly: {
+    total: 0,
+    berhasil: 0,
+    terlambat: 0,
+    anomali: 0,
+    skip: 0,
+    terlewat: 0,
+    handover_accepted: 0,
+  },
   leaders: {},
   satpams: [],
   period: {},
 });
+const handoverRequesters = computed(() =>
+  recap.value.satpams
+    .filter((satpam) => satpam.handover_accepted > 0)
+    .sort((left, right) => right.handover_accepted - left.handover_accepted),
+);
 const recapChartTotal = computed(() =>
   ["berhasil", "terlambat", "anomali", "skip", "terlewat"].reduce(
     (total, key) => total + (recap.value.monthly[key] || 0),
@@ -1106,6 +1161,7 @@ const verticalBarsFor = (satpam) => {
     { key: "anomali",    label: "Anomali",    color: "#d63031", value: satpam.anomali   || 0 },
     { key: "skip",       label: "Skip",       color: "#7c3aed", value: satpam.skip      || 0 },
     { key: "terlewat",   label: "Terlewat",   color: "#3578e5", value: satpam.terlewat  || 0 },
+    { key: "handover_accepted", label: "Diterima", color: "#008b8b", value: satpam.handover_accepted || 0 },
   ];
 
   const scheduled = satpam.scheduled || 0;
@@ -1181,6 +1237,12 @@ const printLeaders = computed(() => [
     label: "Terlewat terbanyak",
     name: recap.value.leaders?.terlewat?.name || "Belum ada data",
     value: recap.value.leaders?.terlewat?.terlewat || 0,
+  },
+  {
+    key: "handover_accepted",
+    label: "Handover diterima terbanyak",
+    name: recap.value.leaders?.handover_accepted?.name || "Belum ada data",
+    value: recap.value.leaders?.handover_accepted?.handover_accepted || 0,
   },
 ]);
 
@@ -3166,6 +3228,41 @@ tbody tr:last-child td {
 }
 .blue-dot {
   background: #3578e5;
+}
+.recap-handover-list {
+  margin: 0 24px 20px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 14px;
+}
+.recap-handover-list h4 {
+  margin: 0 0 10px;
+  color: #252b3b;
+  font-size: 14px;
+}
+.recap-handover-table-wrap {
+  overflow-x: auto;
+}
+.recap-handover-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.recap-handover-table th,
+.recap-handover-table td {
+  padding: 9px 11px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  white-space: nowrap;
+}
+.recap-handover-table th {
+  color: #5c6472;
+  font-weight: 600;
+}
+.recap-handover-empty {
+  margin: 0;
+  color: #6f7380;
+  font-size: 13px;
 }
 .print-recap-document {
   display: none;
