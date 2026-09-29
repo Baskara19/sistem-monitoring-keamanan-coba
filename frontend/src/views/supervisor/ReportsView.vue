@@ -502,7 +502,7 @@
                     <td>
                       <span class="status-badge" :class="getStatusClass(report.scan_status)">
                         <span class="status-dot"></span>
-                        {{ formatStatus(report.scan_status) }}
+                        {{ report.scan_status_label || formatStatus(report.scan_status) }}
                       </span>
                     </td>
 

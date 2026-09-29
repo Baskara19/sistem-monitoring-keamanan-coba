@@ -210,7 +210,7 @@
                   <span
                     v-if="point.scan_status_label"
                     class="status-badge"
-                    :class="getStatusClass(point.scan_status)"
+                    :class="getStatusClass(point.scan_status_label || point.scan_status)"
                   >
                     {{ point.scan_status_label }}
                   </span>
@@ -241,7 +241,8 @@
 
                   <div class="time-item">
                     <span>Waktu Scan</span>
-                    <strong v-if="point.scan_time">{{ formatTime(point.scan_time) }}</strong>
+                    <strong v-if="point.scan_time">{{ formatScanTime(point.scan_time) }}</strong>
+                    <span v-else-if="point.handover?.status === 'accepted' && point.handover?.is_sender" class="text-handover-waiting">Menunggu Rekan</span>
                     <span v-else class="text-not-scanned">Belum</span>
                   </div>
                 </div>
@@ -581,15 +582,15 @@ const scheduleTitle = computed(() => {
 */
 
 const getStatusClass = (status) => {
-  return (
-    {
-      berhasil: "success",
-      terlambat: "late",
-      skip: "skip",
-      anomali: "anomaly",
-      terlewat: "missed",
-    }[status] || "default"
-  );
+  if (!status) return "default";
+  const s = String(status).toLowerCase();
+  if (s.includes("berhasil")) return "success";
+  if (s.includes("terlambat")) return "late";
+  if (s.includes("skip")) return "skip";
+  if (s.includes("anomali")) return "anomaly";
+  if (s.includes("terlewat")) return "missed";
+  if (s.includes("handover") || s.includes("dialihkan")) return "handover";
+  return "default";
 };
 
 const formatTime = (time) => {
@@ -598,6 +599,25 @@ const formatTime = (time) => {
   }
 
   return String(time).slice(0, 5);
+};
+
+const formatScanTime = (dateTime) => {
+  if (!dateTime) return "--:--";
+  try {
+    const d = new Date(dateTime);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    }
+  } catch (e) {}
+
+  if (typeof dateTime === "string" && dateTime.includes(" ")) {
+    return dateTime.split(" ")[1]?.slice(0, 5) || "--:--";
+  }
+  return String(dateTime).slice(0, 5);
 };
 
 /*
@@ -1184,6 +1204,19 @@ onMounted(() => {
 .status-badge.default {
   background: #eef0f6;
   color: #1f2454;
+}
+
+.status-badge.handover {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.text-handover-waiting {
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 600;
+  font-style: italic;
 }
 
 .patrol-icon {

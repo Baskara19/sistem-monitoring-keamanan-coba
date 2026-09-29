@@ -883,12 +883,16 @@ public function reports(Request $request)
         $query->where('scan_status', $request->status);
     }
 
-    // Filter nama satpam
+    // Filter nama satpam (pelaksana maupun yang diwakili via handover)
     if ($request->filled('satpam')) {
         $search = $request->satpam;
 
-        $query->whereHas('satpam.user', function ($q) use ($search) {
-            $q->where('name', 'like', "%{$search}%");
+        $query->where(function ($q) use ($search) {
+            $q->whereHas('satpam.user', function ($q2) use ($search) {
+                $q2->where('name', 'like', "%{$search}%");
+            })->orWhereHas('delegatedFromSatpam.user', function ($q2) use ($search) {
+                $q2->where('name', 'like', "%{$search}%");
+            });
         });
     }
 
@@ -952,6 +956,12 @@ public function reports(Request $request)
                 $pointLog = $pointLogs->first(fn ($l) => in_array($l->scan_status, ['berhasil', 'terlambat', 'skip']))
                     ?? $pointLogs->last();
 
+                $isHandover = $pointLog?->delegated_from_satpam_id !== null;
+                $statusLabel = $pointLog?->scan_status ? ucfirst($pointLog->scan_status) : 'Belum';
+                if ($isHandover && $pointLog?->scan_status) {
+                    $statusLabel .= ' - Handover';
+                }
+
                 return [
                     'schedule_detail_id' => $detail->id,
                     'sequence_order'     => $detail->sequence_order,
@@ -959,9 +969,10 @@ public function reports(Request $request)
                     'patrol_point_name'  => $detail->patrolPoint?->name ?? '-',
                     'scan_time'          => $pointLog?->scan_time,
                     'status'             => $pointLog?->scan_status ?? 'belum',
+                    'status_label'       => $statusLabel,
                     'note'               => $pointLog?->note,
                     'patrol_log_id'      => $pointLog?->id,
-                    'is_handover'        => $pointLog?->delegated_from_satpam_id !== null,
+                    'is_handover'        => $isHandover,
                     'delegated_from'     => $pointLog?->delegatedFromSatpam?->user?->name,
                 ];
             })->values();
@@ -972,6 +983,11 @@ public function reports(Request $request)
                 'points'      => $points,
             ];
         })->values();
+
+        $scanStatusLabel = $log->scan_status ? ucfirst($log->scan_status) : '-';
+        if ($log->delegated_from_satpam_id !== null && $log->scan_status) {
+            $scanStatusLabel .= ' - Handover';
+        }
 
         return [
             'id' => $log->id,
@@ -992,6 +1008,8 @@ public function reports(Request $request)
             'scan_time' => $log->scan_time,
 
             'scan_status' => $log->scan_status ?? '-',
+
+            'scan_status_label' => $scanStatusLabel,
 
             'note' => $log->note,
 
