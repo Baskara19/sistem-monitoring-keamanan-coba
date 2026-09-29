@@ -115,6 +115,7 @@ class PatrolRoundAssignmentTest extends TestCase
         $this->assertEquals(99, $info2['id']);
         $this->assertEquals('Budi KAT', $info2['name']);
         $this->assertEquals('katim', $info2['role']);
+        $this->assertEquals('KATIM', $info2['role_label']);
     }
 }
 

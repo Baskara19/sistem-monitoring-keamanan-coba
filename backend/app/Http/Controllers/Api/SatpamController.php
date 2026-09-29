@@ -760,6 +760,7 @@ public function schedule(Request $request)
                 'assigned_satpam_id'   => $assignedInfo['id'] ?? null,
                 'assigned_satpam_name' => $assignedInfo['name'] ?? null,
                 'assigned_role'        => $assignedInfo['role'] ?? 'satpam',
+                'assigned_role_label'  => $assignedInfo['role_label'] ?? ($assignedInfo['role'] === 'katim' ? 'KATIM' : 'Satpam'),
                 'points'               => $points,
             ];
         })->values();

@@ -244,24 +244,30 @@ class PatrolRoundService
         if ($katimId) {
             if ($round % 2 === 1) {
                 return [
-                    'id'   => $detail->satpam_id,
-                    'name' => $detail->satpam?->user?->name ?? 'Satpam',
-                    'role' => 'satpam',
+                    'id'         => $detail->satpam_id,
+                    'name'       => $detail->satpam?->user?->name ?? 'Satpam',
+                    'role'       => 'satpam',
+                    'role_label' => 'Satpam',
                 ];
             } else {
                 $katim = $detail->schedule?->katim;
+                $tim = $katim?->user?->tim;
+                $roleLabel = $tim ? "KATIM {$tim}" : 'KATIM';
                 return [
-                    'id'   => $katimId,
-                    'name' => $katim?->user?->name ?? 'KAT',
-                    'role' => 'katim',
+                    'id'         => $katimId,
+                    'name'       => $katim?->user?->name ?? 'KATIM',
+                    'role'       => 'katim',
+                    'tim'        => $tim,
+                    'role_label' => $roleLabel,
                 ];
             }
         }
 
         return [
-            'id'   => $detail->satpam_id,
-            'name' => $detail->satpam?->user?->name ?? 'Satpam',
-            'role' => 'satpam',
+            'id'         => $detail->satpam_id,
+            'name'       => $detail->satpam?->user?->name ?? 'Satpam',
+            'role'       => 'satpam',
+            'role_label' => 'Satpam',
         ];
     }
 }

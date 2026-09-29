@@ -506,6 +506,7 @@ class SupervisorController extends Controller
             'satpam_name'       => $detail->satpam?->user?->name ?? '-',
             'katim_id'          => $detail->schedule?->katim_id,
             'katim_name'        => $detail->schedule?->katim?->user?->name,
+            'katim_tim'         => $detail->schedule?->katim?->user?->tim,
             'patrol_point_id'   => $detail->patrol_point_id,
             'area'              => $detail->patrolPoint?->name ?? '-',
             'start_date'        => $detail->schedule?->start_date,
@@ -854,7 +855,7 @@ public function scheduleDestroy(Request $request, $id)
         ], 403);
     }
 
-    $satpam = Satpam::with('user:id,name,location_id,role')
+    $satpam = Satpam::with('user:id,name,location_id,role,tim')
         ->where('status', 'aktif')
         ->whereHas('user', function ($query) use ($locationId) {
             $query->where('location_id', $locationId)
@@ -865,6 +866,7 @@ public function scheduleDestroy(Request $request, $id)
             'id'   => $s->id,
             'name' => $s->user?->name ?? '-',
             'role' => $s->user?->role ?? 'satpam',
+            'tim'  => $s->user?->tim,
         ]);
 
     return response()->json([
@@ -1043,6 +1045,7 @@ public function reports(Request $request)
                 'assigned_satpam_id'   => $assignedInfo['id'] ?? null,
                 'assigned_satpam_name' => $assignedInfo['name'] ?? null,
                 'assigned_role'        => $assignedInfo['role'] ?? 'satpam',
+                'assigned_role_label'  => $assignedInfo['role_label'] ?? ($assignedInfo['role'] === 'katim' ? 'KATIM' : 'Satpam'),
                 'points'               => $points,
             ];
         })->values();

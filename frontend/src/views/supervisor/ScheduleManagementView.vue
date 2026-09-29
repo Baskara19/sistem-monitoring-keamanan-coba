@@ -224,6 +224,13 @@ const formatShift = (row) => {
 
 const statusLabel = (status) => (status === "aktif" ? "Terjadwal" : "Nonaktif");
 
+const formatKatimLabel = (row) => {
+  if (row.katim_tim) {
+    return `KATIM ${row.katim_tim}`;
+  }
+  return "KATIM";
+};
+
 /*
 |--------------------------------------------------------------------------
 | MODAL
@@ -640,7 +647,7 @@ onMounted(() => {
                 <td class="cell-strong">
                   <div>{{ row.satpam_name }}</div>
                   <small v-if="row.katim_name" style="color: #6366f1; font-weight: 500; font-size: 11px; display: block; margin-top: 2px;">
-                    + KAT: {{ row.katim_name }} (2:2)
+                    + {{ formatKatimLabel(row) }}: {{ row.katim_name }} (2:2)
                   </small>
                 </td>
                 <td class="text-secondary">{{ formatDateRange(row) }}</td>
@@ -709,25 +716,25 @@ onMounted(() => {
             <select v-model="form.satpam_id">
               <option value="" disabled>Pilih satpam</option>
               <option v-for="s in satpamOptions" :key="s.id" :value="s.id">
-                {{ s.name }} {{ s.role === 'katim' ? '(KAT)' : '' }}
+                {{ s.name }} {{ s.role === 'katim' ? (s.tim ? `(KATIM ${s.tim})` : '(KATIM)') : '' }}
               </option>
             </select>
           </div>
 
           <div class="form-group">
-            <label>Petugas KAT / Katim (Opsional — Pembagian Putaran 2:2)</label>
+            <label>Petugas KATIM (Opsional — Pembagian Putaran 2:2)</label>
             <select v-model="form.katim_id">
-              <option value="">-- Tanpa KAT (Semua 4 putaran untuk Satpam) --</option>
+              <option value="">-- Tanpa KATIM (Semua 4 putaran untuk Satpam) --</option>
               <option
                 v-for="k in satpamOptions.filter(o => o.id !== form.satpam_id)"
                 :key="k.id"
                 :value="k.id"
               >
-                {{ k.name }} {{ k.role === 'katim' ? '(KAT)' : '' }}
+                {{ k.name }} {{ k.role === 'katim' ? (k.tim ? `(KATIM ${k.tim})` : '(KATIM)') : '' }}
               </option>
             </select>
             <small v-if="form.katim_id" class="field-hint" style="color: #6366f1; margin-top: 4px; display: block;">
-              4 putaran patroli akan otomatis dibagi 2:2 selang-seling (Putaran 1 & 3: Satpam, Putaran 2 & 4: KAT).
+              4 putaran patroli akan otomatis dibagi 2:2 selang-seling (Putaran 1 & 3: Satpam, Putaran 2 & 4: KATIM).
             </small>
           </div>
 
