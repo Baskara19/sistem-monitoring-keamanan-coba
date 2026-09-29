@@ -1601,35 +1601,237 @@ if (! $locationId) {
                 }
 
                 $date = Carbon::create($tahun, $bulan, $day)->toDateString();
+                [$shiftStart, $shiftEnd] = self::SHIFT_TIMES[$code];
 
-                $alreadyExists = ScheduleDetail::where('satpam_id', $satpam->id)
-                    ->whereHas('schedule', fn ($q) => $q->whereDate('start_date', $date)->whereDate('end_date', $date))
-                    ->exists();
+                $pendingAssignments[] = [
+                    'row'         => $rowNumber,
+                    'user'        => $user,
+                    'satpam'      => $satpam,
+                    'route'       => $route,
+                    'day'         => $day,
+                    'date'        => $date,
+                    'shift_code'  => $code,
+                    'shift_start' => $shiftStart,
+                    'shift_end'   => $shiftEnd,
+                    'role'        => $user->role,
+                    'tim'         => trim((string) $user->tim),
+                ];
+            }
+        }
 
-                if ($alreadyExists) {
+        // Kelompokkan penugasan berdasarkan: tanggal | rute_id | shift_code
+        // Supaya jika ada KAT dan Satpam pada tanggal, rute, dan shift yang sama,
+        // mereka otomatis digabungkan ke dalam 1 jadwal patroli dengan pembagian putaran 2:2.
+        $groupedAssignments = collect($pendingAssignments)->groupBy(function ($item) {
+            return $item['date'] . '|' . $item['route']->id . '|' . $item['shift_code'];
+        });
+
+        foreach ($groupedAssignments as $groupItems) {
+            $firstItem  = $groupItems->first();
+            $date       = $firstItem['date'];
+            $route      = $firstItem['route'];
+            $shiftStart = $firstItem['shift_start'];
+            $shiftEnd   = $firstItem['shift_end'];
+
+            $katims  = $groupItems->where('role', 'katim')->values()->all();
+            $satpams = $groupItems->where('role', 'satpam')->values()->all();
+
+            $pairs = [];
+            $usedKatimIndices  = [];
+            $usedSatpamIndices = [];
+
+            // 1. Coba pasangkan berdasarkan kecocokan nomor tim
+            foreach ($katims as $kIdx => $kItem) {
+                if ($kItem['tim'] !== '') {
+                    foreach ($satpams as $sIdx => $sItem) {
+                        if (! in_array($sIdx, $usedSatpamIndices, true) && $sItem['tim'] === $kItem['tim']) {
+                            $pairs[] = ['satpam' => $sItem, 'katim' => $kItem];
+                            $usedKatimIndices[]  = $kIdx;
+                            $usedSatpamIndices[] = $sIdx;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 2. Pasangkan sisa KAT dan Satpam yang belum berpasangan (1-ke-1)
+            foreach ($katims as $kIdx => $kItem) {
+                if (in_array($kIdx, $usedKatimIndices, true)) {
+                    continue;
+                }
+                foreach ($satpams as $sIdx => $sItem) {
+                    if (! in_array($sIdx, $usedSatpamIndices, true)) {
+                        $pairs[] = ['satpam' => $sItem, 'katim' => $kItem];
+                        $usedKatimIndices[]  = $kIdx;
+                        $usedSatpamIndices[] = $sIdx;
+                        break;
+                    }
+                }
+            }
+
+            $unpairedSatpams = [];
+            foreach ($satpams as $sIdx => $sItem) {
+                if (! in_array($sIdx, $usedSatpamIndices, true)) {
+                    $unpairedSatpams[] = $sItem;
+                }
+            }
+
+            $unpairedKatims = [];
+            foreach ($katims as $kIdx => $kItem) {
+                if (! in_array($kIdx, $usedKatimIndices, true)) {
+                    $unpairedKatims[] = $kItem;
+                }
+            }
+
+            // Simpan pasangan (1 Satpam + 1 KAT)
+            foreach ($pairs as $pair) {
+                $sItem = $pair['satpam'];
+                $kItem = $pair['katim'];
+                $satpamSatpamId = $sItem['satpam']->id;
+                $katimSatpamId  = $kItem['satpam']->id;
+
+                $existingSatpamSched = Schedule::whereDate('start_date', $date)
+                    ->where(function ($q) use ($satpamSatpamId) {
+                        $q->where('katim_id', $satpamSatpamId)
+                          ->orWhereHas('scheduleDetails', fn ($sq) => $sq->where('satpam_id', $satpamSatpamId));
+                    })
+                    ->first();
+
+                $existingKatimSched = Schedule::whereDate('start_date', $date)
+                    ->where(function ($q) use ($katimSatpamId) {
+                        $q->where('katim_id', $katimSatpamId)
+                          ->orWhereHas('scheduleDetails', fn ($sq) => $sq->where('satpam_id', $katimSatpamId));
+                    })
+                    ->first();
+
+                if ($existingSatpamSched && $existingKatimSched && $existingSatpamSched->id === $existingKatimSched->id) {
                     $errors[] = [
-                        'row' => $rowNumber,
-                        'message' => "{$user->name} (NIPKWT {$nipkwt}) tanggal {$day}: sudah ada jadwal, dilewati.",
+                        'row' => $sItem['row'],
+                        'message' => "{$sItem['user']->name} & {$kItem['user']->name} tanggal {$sItem['day']}: jadwal sudah ada, dilewati.",
                     ];
                     continue;
                 }
 
-                [$shiftStart, $shiftEnd] = self::SHIFT_TIMES[$code];
+                if ($existingSatpamSched && ! $existingSatpamSched->katim_id && ! $existingKatimSched) {
+                    $existingSatpamSched->update([
+                        'katim_id' => $katimSatpamId,
+                        'title'    => "Jadwal {$sItem['user']->name} & {$kItem['user']->name} - {$route->name}",
+                    ]);
+                    $imported++;
+                    continue;
+                }
 
-                DB::transaction(function () use ($supervisor, $satpam, $user, $route, $date, $shiftStart, $shiftEnd) {
+                if ($existingSatpamSched || $existingKatimSched) {
+                    $errors[] = [
+                        'row' => $sItem['row'],
+                        'message' => "{$sItem['user']->name} atau {$kItem['user']->name} tanggal {$sItem['day']}: salah satu sudah memiliki jadwal di tanggal ini, dilewati.",
+                    ];
+                    continue;
+                }
+
+                DB::transaction(function () use ($supervisor, $sItem, $kItem, $route, $date, $shiftStart, $shiftEnd) {
                     $schedule = Schedule::create([
                         'supervisor_id' => $supervisor->id,
-                        'title'         => "Jadwal {$user->name} - {$route->name}",
+                        'title'         => "Jadwal {$sItem['user']->name} & {$kItem['user']->name} - {$route->name}",
                         'description'   => null,
                         'start_date'    => $date,
                         'end_date'      => $date,
+                        'katim_id'      => $kItem['satpam']->id,
                         'status'        => 'aktif',
                     ]);
 
                     foreach ($route->points as $index => $routePoint) {
                         ScheduleDetail::create([
                             'schedule_id'     => $schedule->id,
-                            'satpam_id'       => $satpam->id,
+                            'satpam_id'       => $sItem['satpam']->id,
+                            'patrol_point_id' => $routePoint->patrol_point_id,
+                            'shift_start'     => $shiftStart,
+                            'shift_end'       => $shiftEnd,
+                            'sequence_order'  => $index + 1,
+                        ]);
+                    }
+                });
+
+                $imported++;
+            }
+
+            // Simpan Satpam solo (tanpa KAT)
+            foreach ($unpairedSatpams as $sItem) {
+                $satpamSatpamId = $sItem['satpam']->id;
+                $alreadyExists = Schedule::whereDate('start_date', $date)
+                    ->where(function ($q) use ($satpamSatpamId) {
+                        $q->where('katim_id', $satpamSatpamId)
+                          ->orWhereHas('scheduleDetails', fn ($sq) => $sq->where('satpam_id', $satpamSatpamId));
+                    })
+                    ->exists();
+
+                if ($alreadyExists) {
+                    $errors[] = [
+                        'row' => $sItem['row'],
+                        'message' => "{$sItem['user']->name} (NIPKWT {$sItem['user']->nipkwt}) tanggal {$sItem['day']}: sudah ada jadwal, dilewati.",
+                    ];
+                    continue;
+                }
+
+                DB::transaction(function () use ($supervisor, $sItem, $route, $date, $shiftStart, $shiftEnd) {
+                    $schedule = Schedule::create([
+                        'supervisor_id' => $supervisor->id,
+                        'title'         => "Jadwal {$sItem['user']->name} - {$route->name}",
+                        'description'   => null,
+                        'start_date'    => $date,
+                        'end_date'      => $date,
+                        'katim_id'      => null,
+                        'status'        => 'aktif',
+                    ]);
+
+                    foreach ($route->points as $index => $routePoint) {
+                        ScheduleDetail::create([
+                            'schedule_id'     => $schedule->id,
+                            'satpam_id'       => $sItem['satpam']->id,
+                            'patrol_point_id' => $routePoint->patrol_point_id,
+                            'shift_start'     => $shiftStart,
+                            'shift_end'       => $shiftEnd,
+                            'sequence_order'  => $index + 1,
+                        ]);
+                    }
+                });
+
+                $imported++;
+            }
+
+            // Simpan KAT solo (tanpa Satpam)
+            foreach ($unpairedKatims as $kItem) {
+                $katimSatpamId = $kItem['satpam']->id;
+                $alreadyExists = Schedule::whereDate('start_date', $date)
+                    ->where(function ($q) use ($katimSatpamId) {
+                        $q->where('katim_id', $katimSatpamId)
+                          ->orWhereHas('scheduleDetails', fn ($sq) => $sq->where('satpam_id', $katimSatpamId));
+                    })
+                    ->exists();
+
+                if ($alreadyExists) {
+                    $errors[] = [
+                        'row' => $kItem['row'],
+                        'message' => "{$kItem['user']->name} (NIPKWT {$kItem['user']->nipkwt}) tanggal {$kItem['day']}: sudah ada jadwal, dilewati.",
+                    ];
+                    continue;
+                }
+
+                DB::transaction(function () use ($supervisor, $kItem, $route, $date, $shiftStart, $shiftEnd) {
+                    $schedule = Schedule::create([
+                        'supervisor_id' => $supervisor->id,
+                        'title'         => "Jadwal {$kItem['user']->name} - {$route->name}",
+                        'description'   => null,
+                        'start_date'    => $date,
+                        'end_date'      => $date,
+                        'katim_id'      => null,
+                        'status'        => 'aktif',
+                    ]);
+
+                    foreach ($route->points as $index => $routePoint) {
+                        ScheduleDetail::create([
+                            'schedule_id'     => $schedule->id,
+                            'satpam_id'       => $kItem['satpam']->id,
                             'patrol_point_id' => $routePoint->patrol_point_id,
                             'shift_start'     => $shiftStart,
                             'shift_end'       => $shiftEnd,
