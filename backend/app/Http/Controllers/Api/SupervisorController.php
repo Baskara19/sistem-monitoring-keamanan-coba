@@ -504,6 +504,8 @@ class SupervisorController extends Controller
             'schedule_id'       => $detail->schedule_id,
             'satpam_id'         => $detail->satpam_id,
             'satpam_name'       => $detail->satpam?->user?->name ?? '-',
+            'katim_id'          => $detail->schedule?->katim_id,
+            'katim_name'        => $detail->schedule?->katim?->user?->name,
             'patrol_point_id'   => $detail->patrol_point_id,
             'area'              => $detail->patrolPoint?->name ?? '-',
             'start_date'        => $detail->schedule?->start_date,
@@ -517,70 +519,76 @@ class SupervisorController extends Controller
     }
 
     // GET /api/supervisor/schedules
-    // GET /api/supervisor/schedules
-public function scheduleIndex(Request $request)
-{
-    $locationId = $this->supervisorLocationId($request);
+    public function scheduleIndex(Request $request)
+    {
+        $locationId = $this->supervisorLocationId($request);
 
-    if (! $locationId) {
-        return response()->json([
-            'message' => 'Lokasi supervisor belum ditentukan.',
-        ], 403);
-    }
+        if (! $locationId) {
+            return response()->json([
+                'message' => 'Lokasi supervisor belum ditentukan.',
+            ], 403);
+        }
 
-    $query = ScheduleDetail::with([
-        'schedule',
-        'satpam.user',
-        'patrolPoint',
-    ])->whereHas('satpam.user', function ($query) use ($locationId) {
-        $query->where('location_id', $locationId);
-    });
-
-    if ($request->filled('search')) {
-        $search = $request->input('search');
-
-        $query->where(function ($q) use ($search) {
-            $q->whereHas('satpam.user', function ($q2) use ($search) {
-                $q2->where('name', 'like', "%{$search}%");
-            })->orWhereHas('patrolPoint', function ($q2) use ($search) {
-                $q2->where('name', 'like', "%{$search}%");
+        $query = ScheduleDetail::with([
+            'schedule.katim.user',
+            'satpam.user',
+            'patrolPoint',
+        ])->where(function ($q) use ($locationId) {
+            $q->whereHas('satpam.user', function ($sub) use ($locationId) {
+                $sub->where('location_id', $locationId);
+            })->orWhereHas('schedule.katim.user', function ($sub) use ($locationId) {
+                $sub->where('location_id', $locationId);
             });
         });
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('satpam.user', function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%");
+                })->orWhereHas('schedule.katim.user', function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%");
+                })->orWhereHas('patrolPoint', function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        if ($request->filled('date_from') || $request->filled('date_to')) {
+            $query->whereHas('schedule', function ($q) use ($request) {
+                if ($request->filled('date_from')) {
+                    $q->whereDate('end_date', '>=', $request->input('date_from'));
+                }
+
+                if ($request->filled('date_to')) {
+                    $q->whereDate('start_date', '<=', $request->input('date_to'));
+                }
+            });
+        }
+
+        $rows = $query->join(
+            'schedules',
+            'schedules.id',
+            '=',
+            'schedule_details.schedule_id'
+        )
+            ->orderBy('schedules.start_date', 'desc')
+            ->select('schedule_details.*')
+            ->get()
+            ->map(fn (ScheduleDetail $detail) => $this->formatScheduleRow($detail));
+
+        return response()->json([
+            'schedules' => $rows,
+        ]);
     }
-
-    if ($request->filled('date_from') || $request->filled('date_to')) {
-        $query->whereHas('schedule', function ($q) use ($request) {
-            if ($request->filled('date_from')) {
-                $q->whereDate('end_date', '>=', $request->input('date_from'));
-            }
-
-            if ($request->filled('date_to')) {
-                $q->whereDate('start_date', '<=', $request->input('date_to'));
-            }
-        });
-    }
-
-    $rows = $query->join(
-        'schedules',
-        'schedules.id',
-        '=',
-        'schedule_details.schedule_id'
-    )
-        ->orderBy('schedules.start_date', 'desc')
-        ->select('schedule_details.*')
-        ->get()
-        ->map(fn (ScheduleDetail $detail) => $this->formatScheduleRow($detail));
-
-    return response()->json([
-        'schedules' => $rows,
-    ]);
-}
 
     // POST /api/supervisor/schedules
     public function scheduleStore(Request $request)
     {
         $validated = $request->validate([
             'satpam_id'   => 'required|exists:satpams,id',
+            'katim_id'    => 'nullable|exists:satpams,id|different:satpam_id',
             'route_id'    => 'required|exists:patrol_routes,id',
             'start_date'  => 'required|date',
             'end_date'    => 'required|date|after_or_equal:start_date',
@@ -619,6 +627,24 @@ if (! $satpam) {
     ], 403);
 }
 
+        $katim = null;
+        if (! empty($validated['katim_id'])) {
+            $katim = Satpam::with('user')
+                ->where('id', $validated['katim_id'])
+                ->where('status', 'aktif')
+                ->whereHas('user', function ($query) use ($locationId) {
+                    $query->where('location_id', $locationId)
+                        ->where('status', 'aktif');
+                })
+                ->first();
+
+            if (! $katim) {
+                return response()->json([
+                    'message' => 'KAT tidak aktif atau tidak berada di lokasi supervisor.',
+                ], 403);
+            }
+        }
+
         $route = PatrolRoute::with('points')->find($validated['route_id']);
 
         if (! $route || $route->points->isEmpty()) {
@@ -627,11 +653,16 @@ if (! $satpam) {
             ], 404);
         }
 
-       $satpamName = $satpam->user?->name ?? 'Satpam';
+        $satpamName = $satpam->user?->name ?? 'Satpam';
+        $katimName  = $katim?->user?->name;
+        $title      = $katim
+            ? "Jadwal {$satpamName} & {$katimName} - {$route->name}"
+            : "Jadwal {$satpamName} - {$route->name}";
 
         $schedule = Schedule::create([
             'supervisor_id' => $supervisor->id,
-            'title'         => "Jadwal {$satpamName} - {$route->name}",
+            'katim_id'      => $validated['katim_id'] ?? null,
+            'title'         => $title,
             'description'   => null,
             'start_date'    => $validated['start_date'],
             'end_date'      => $validated['end_date'],
@@ -659,7 +690,7 @@ if (! $satpam) {
                 'sequence_order'   => $startingSequence + $index + 1,
             ]);
 
-            $detail->load(['schedule', 'satpam.user', 'patrolPoint']);
+            $detail->load(['schedule.katim.user', 'satpam.user', 'patrolPoint']);
             $details->push($detail);
         }
 
@@ -690,6 +721,7 @@ if (! $locationId) {
 }
         $validated = $request->validate([
             'satpam_id'       => 'required|exists:satpams,id',
+            'katim_id'        => 'nullable|exists:satpams,id|different:satpam_id',
             'patrol_point_id' => 'required|exists:patrol_points,id',
             'start_date'      => 'required|date',
             'end_date'        => 'required|date|after_or_equal:start_date',
@@ -698,20 +730,36 @@ if (! $locationId) {
             'status'          => 'required|in:aktif,nonaktif',
         ]);
 
-$satpam = Satpam::with('user')
-    ->where('id', $validated['satpam_id'])
-    ->where('status', 'aktif')
-    ->whereHas('user', function ($query) use ($locationId) {
-        $query->where('location_id', $locationId)
-            ->where('status', 'aktif');
-    })
-    ->first();
+        $satpam = Satpam::with('user')
+            ->where('id', $validated['satpam_id'])
+            ->where('status', 'aktif')
+            ->whereHas('user', function ($query) use ($locationId) {
+                $query->where('location_id', $locationId)
+                    ->where('status', 'aktif');
+            })
+            ->first();
 
-if (! $satpam) {
-    return response()->json([
-        'message' => 'Satpam tidak aktif atau tidak berada di lokasi supervisor.',
-    ], 403);
-}
+        if (! $satpam) {
+            return response()->json([
+                'message' => 'Satpam tidak aktif atau tidak berada di lokasi supervisor.',
+            ], 403);
+        }
+
+        if (! empty($validated['katim_id'])) {
+            $katimExists = Satpam::where('id', $validated['katim_id'])
+                ->where('status', 'aktif')
+                ->whereHas('user', function ($query) use ($locationId) {
+                    $query->where('location_id', $locationId)
+                        ->where('status', 'aktif');
+                })
+                ->exists();
+
+            if (! $katimExists) {
+                return response()->json([
+                    'message' => 'KAT tidak aktif atau tidak berada di lokasi supervisor.',
+                ], 403);
+            }
+        }
 
         $detail->update([
             'satpam_id'       => $validated['satpam_id'],
@@ -721,12 +769,13 @@ if (! $satpam) {
         ]);
 
         $detail->schedule?->update([
+            'katim_id'   => $validated['katim_id'] ?? null,
             'start_date' => $validated['start_date'],
             'end_date'   => $validated['end_date'],
             'status'     => $validated['status'],
         ]);
 
-        $detail->load(['schedule', 'satpam.user', 'patrolPoint']);
+        $detail->load(['schedule.katim.user', 'satpam.user', 'patrolPoint']);
 
         return response()->json([
             'message'  => 'Jadwal berhasil diperbarui.',
@@ -805,7 +854,7 @@ public function scheduleDestroy(Request $request, $id)
         ], 403);
     }
 
-    $satpam = Satpam::with('user:id,name,location_id')
+    $satpam = Satpam::with('user:id,name,location_id,role')
         ->where('status', 'aktif')
         ->whereHas('user', function ($query) use ($locationId) {
             $query->where('location_id', $locationId)
@@ -815,6 +864,7 @@ public function scheduleDestroy(Request $request, $id)
         ->map(fn (Satpam $s) => [
             'id'   => $s->id,
             'name' => $s->user?->name ?? '-',
+            'role' => $s->user?->role ?? 'satpam',
         ]);
 
     return response()->json([
@@ -870,7 +920,8 @@ public function reports(Request $request)
         'delegatedFromSatpam.user',
         'handover',
         'patrolPoint',
-        'scheduleDetail.schedule',
+        'scheduleDetail.schedule.katim.user',
+        'scheduleDetail.satpam.user',
         'scheduleDetail.patrolPoint',
         'report',
         'skipReason',
@@ -924,6 +975,8 @@ public function reports(Request $request)
         if ($currentDetail?->schedule_id) {
             $scheduleDetails = ScheduleDetail::with([
                 'patrolPoint',
+                'schedule.katim.user',
+                'satpam.user',
             ])
                 ->where('schedule_id', $currentDetail->schedule_id)
                 ->orderBy('sequence_order')
@@ -953,7 +1006,9 @@ public function reports(Request $request)
         $roundService = new PatrolRoundService();
         $roundTimes   = $roundService->getRoundTimes($shiftLabel);
 
-        $patrolTimeline = collect($roundTimes)->map(function ($targetTime, $roundNumber) use ($scheduleDetails, $scheduleLogs) {
+        $patrolTimeline = collect($roundTimes)->map(function ($targetTime, $roundNumber) use ($scheduleDetails, $scheduleLogs, $currentDetail, $roundService) {
+            $assignedInfo = $currentDetail ? $roundService->getAssignedSatpamInfo($currentDetail, $roundNumber) : null;
+
             $points = $scheduleDetails->map(function ($detail) use ($roundNumber, $scheduleLogs) {
                 $key      = $detail->id . '-' . $roundNumber;
                 $pointLogs = $scheduleLogs->get($key, collect());
@@ -983,9 +1038,12 @@ public function reports(Request $request)
             })->values();
 
             return [
-                'round'       => $roundNumber,
-                'target_time' => $targetTime,
-                'points'      => $points,
+                'round'                => $roundNumber,
+                'target_time'          => $targetTime,
+                'assigned_satpam_id'   => $assignedInfo['id'] ?? null,
+                'assigned_satpam_name' => $assignedInfo['name'] ?? null,
+                'assigned_role'        => $assignedInfo['role'] ?? 'satpam',
+                'points'               => $points,
             ];
         })->values();
 

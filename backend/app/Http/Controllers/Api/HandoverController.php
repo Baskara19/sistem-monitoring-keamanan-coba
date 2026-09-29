@@ -35,7 +35,11 @@ class HandoverController extends Controller
         }
 
         // Ambil jadwal aktif satpam yang sedang login untuk mengetahui shift_label & location_id
-        $mySchedule = ScheduleDetail::where('satpam_id', $satpam->id)
+        $mySchedule = ScheduleDetail::with('schedule')
+            ->where(function ($q) use ($satpam) {
+                $q->where('satpam_id', $satpam->id)
+                  ->orWhereHas('schedule', fn ($sq) => $sq->where('katim_id', $satpam->id));
+            })
             ->whereHas('schedule', function ($q) {
                 $q->where('status', 'aktif')
                     ->whereDate('start_date', '<=', today())
@@ -53,21 +57,37 @@ class HandoverController extends Controller
         $myShiftLabel = $mySchedule->shift_label;
         $locationId   = $satpam->user?->location_id ?? $request->user()->location_id;
 
+        $partnerId = null;
+        if ($mySchedule->schedule?->katim_id) {
+            $partnerId = ($mySchedule->satpam_id === $satpam->id)
+                ? $mySchedule->schedule->katim_id
+                : $mySchedule->satpam_id;
+        }
+
         // Cari rekan satpam yang memiliki jadwal aktif hari ini di lokasi yang sama dan shift yang sama
         $colleagues = Satpam::with(['user', 'scheduleDetails.schedule'])
             ->where('id', '!=', $satpam->id)
+            ->where('status', 'aktif')
             ->whereHas('user', function ($q) use ($locationId) {
                 if ($locationId) {
                     $q->where('location_id', $locationId);
                 }
             })
-            ->whereHas('scheduleDetails.schedule', function ($q) {
-                $q->where('status', 'aktif')
-                    ->whereDate('start_date', '<=', today())
-                    ->whereDate('end_date', '>=', today()->copy()->subDay());
+            ->where(function ($query) use ($partnerId) {
+                if ($partnerId) {
+                    $query->where('id', $partnerId);
+                }
+                $query->orWhereHas('scheduleDetails.schedule', function ($q) {
+                    $q->where('status', 'aktif')
+                        ->whereDate('start_date', '<=', today())
+                        ->whereDate('end_date', '>=', today()->copy()->subDay());
+                });
             })
             ->get()
-            ->filter(function ($s) use ($myShiftLabel) {
+            ->filter(function ($s) use ($myShiftLabel, $partnerId) {
+                if ($partnerId && $s->id === $partnerId) {
+                    return true;
+                }
                 // Cocokkan shift_label (yang merupakan accessor model)
                 return $s->scheduleDetails->contains(function ($sd) use ($myShiftLabel) {
                     $sch = $sd->schedule;
@@ -85,9 +105,10 @@ class HandoverController extends Controller
                 });
             })
             ->map(function ($s) {
+                $roleLabel = $s->user?->role === 'katim' ? ' (KAT)' : ' (Satpam)';
                 return [
                     'id'            => $s->id,
-                    'name'          => $s->user?->name ?? 'Satpam',
+                    'name'          => ($s->user?->name ?? 'Satpam') . $roleLabel,
                     'nipkwt'        => $s->user?->nipkwt ?? '-',
                     'badge_number'  => $s->badge_number ?? '-',
                 ];
@@ -122,8 +143,12 @@ class HandoverController extends Controller
         ]);
 
         // Cek apakah titik tersebut ada di jadwal satpam pemohon hari ini
-        $myDetail = ScheduleDetail::where('satpam_id', $satpam->id)
+        $myDetail = ScheduleDetail::with(['schedule.katim.user', 'satpam.user'])
             ->where('patrol_point_id', $validated['patrol_point_id'])
+            ->where(function ($q) use ($satpam) {
+                $q->where('satpam_id', $satpam->id)
+                  ->orWhereHas('schedule', fn ($sq) => $sq->where('katim_id', $satpam->id));
+            })
             ->whereHas('schedule', function ($q) {
                 $q->where('status', 'aktif')
                     ->whereDate('start_date', '<=', today())
@@ -134,6 +159,14 @@ class HandoverController extends Controller
         if (! $myDetail) {
             return response()->json([
                 'message' => 'Titik ini bukan bagian dari jadwal Anda hari ini.',
+            ], 422);
+        }
+
+        // Pastikan putaran yang diajukan handover memang ditugaskan ke pemohon
+        $roundService = new PatrolRoundService();
+        if (! $roundService->isRoundAssignedTo($myDetail, $validated['patrol_round'], $satpam->id)) {
+            return response()->json([
+                'message' => "Putaran {$validated['patrol_round']} bukan tugas Anda, sehingga tidak dapat diajukan handover.",
             ], 422);
         }
 

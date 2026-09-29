@@ -8,6 +8,7 @@ class Schedule extends Model
 {
     protected $fillable = [
         'supervisor_id',
+        'katim_id',
         'title',
         'description',
         'start_date',
@@ -19,6 +20,12 @@ class Schedule extends Model
     public function supervisor()
     {
         return $this->belongsTo(Supervisor::class);
+    }
+
+    // Relasi ke KAT / Katim (Ketua Regu)
+    public function katim()
+    {
+        return $this->belongsTo(Satpam::class, 'katim_id');
     }
 
     // Relasi ke schedule details

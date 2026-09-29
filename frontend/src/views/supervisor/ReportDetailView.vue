@@ -462,6 +462,9 @@
                     >
                       <div class="round-group-header">
                         <span class="round-group-badge">Putaran {{ roundGroup.round }}</span>
+                        <span v-if="roundGroup.assigned_satpam_name" class="round-group-pic" style="font-size: 12px; font-weight: 600; color: #4f46e5; margin-left: 8px;">
+                          PIC: {{ roundGroup.assigned_satpam_name }} ({{ roundGroup.assigned_role === 'katim' ? 'KAT' : 'Satpam' }})
+                        </span>
                         <span class="round-group-time">Mulai Scan: {{ roundGroup.target_time }}</span>
                       </div>
 

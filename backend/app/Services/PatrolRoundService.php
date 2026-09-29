@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Carbon\Carbon;
+use App\Models\ScheduleDetail;
 
 /**
  * PatrolRoundService
@@ -198,4 +199,70 @@ class PatrolRoundService
     {
         return [today(), today()->copy()->subDay()];
     }
+
+    /**
+     * Tentukan ID satpam yang bertanggung jawab atas putaran tertentu.
+     * Jika jadwal memiliki pembagian KAT (katim_id tidak null):
+     * - Putaran ganjil (1, 3): Satpam pelaksana ($detail->satpam_id)
+     * - Putaran genap (2, 4): KAT / Katim ($detail->schedule->katim_id)
+     * Jika tidak ada KAT (jadwal mandiri):
+     * - Semua putaran (1, 2, 3, 4): Satpam pelaksana ($detail->satpam_id)
+     *
+     * @param  ScheduleDetail  $detail
+     * @param  int             $round (1–4)
+     * @return int|null
+     */
+    public function getAssignedSatpamId(ScheduleDetail $detail, int $round): ?int
+    {
+        $katimId = $detail->schedule?->katim_id;
+
+        if ($katimId) {
+            // Pola selang-seling 2:2:
+            // Ganjil (1, 3) = Satpam
+            // Genap (2, 4)  = KAT
+            return ($round % 2 === 1) ? $detail->satpam_id : $katimId;
+        }
+
+        return $detail->satpam_id;
+    }
+
+    /**
+     * Cek apakah putaran ini ditugaskan ke petugas tertentu.
+     */
+    public function isRoundAssignedTo(ScheduleDetail $detail, int $round, int $satpamId): bool
+    {
+        return $this->getAssignedSatpamId($detail, $round) === $satpamId;
+    }
+
+    /**
+     * Dapatkan nama dan role penanggung jawab putaran tertentu.
+     */
+    public function getAssignedSatpamInfo(ScheduleDetail $detail, int $round): array
+    {
+        $katimId = $detail->schedule?->katim_id;
+
+        if ($katimId) {
+            if ($round % 2 === 1) {
+                return [
+                    'id'   => $detail->satpam_id,
+                    'name' => $detail->satpam?->user?->name ?? 'Satpam',
+                    'role' => 'satpam',
+                ];
+            } else {
+                $katim = $detail->schedule?->katim;
+                return [
+                    'id'   => $katimId,
+                    'name' => $katim?->user?->name ?? 'KAT',
+                    'role' => 'katim',
+                ];
+            }
+        }
+
+        return [
+            'id'   => $detail->satpam_id,
+            'name' => $detail->satpam?->user?->name ?? 'Satpam',
+            'role' => 'satpam',
+        ];
+    }
 }
+

@@ -29,6 +29,7 @@ const formError = ref("");
 
 const form = ref({
   satpam_id: "",
+  katim_id: "",
   route_id: "",
   patrol_point_id: "",
   start_date: "",
@@ -36,6 +37,14 @@ const form = ref({
   shift_start: "",
   shift_end: "",
   status: "aktif",
+});
+
+const regularSatpamOptions = computed(() => {
+  return satpamOptions.value.filter((s) => s.role !== "katim");
+});
+
+const katimOptions = computed(() => {
+  return satpamOptions.value.filter((s) => s.role === "katim");
 });
 
 const user = ref({ name: "Supervisor", role: "supervisor" });
@@ -224,6 +233,7 @@ const statusLabel = (status) => (status === "aktif" ? "Terjadwal" : "Nonaktif");
 const resetForm = () => {
   form.value = {
     satpam_id: "",
+    katim_id: "",
     route_id: "",
     patrol_point_id: "",
     start_date: "",
@@ -248,6 +258,7 @@ const openEditModal = (row) => {
 
   form.value = {
     satpam_id: row.satpam_id,
+    katim_id: row.katim_id || "",
     route_id: "",
     patrol_point_id: row.patrol_point_id,
     start_date: row.start_date,
@@ -291,6 +302,7 @@ const submitForm = async () => {
         "https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules",
         {
           satpam_id: form.value.satpam_id,
+          katim_id: form.value.katim_id || null,
           route_id: form.value.route_id,
           start_date: form.value.start_date,
           end_date: form.value.end_date,
@@ -305,6 +317,7 @@ const submitForm = async () => {
         `https://sistem-monitoring-keamanan-be.onrender.com/api/supervisor/schedules/${selectedId.value}`,
         {
           satpam_id: form.value.satpam_id,
+          katim_id: form.value.katim_id || null,
           patrol_point_id: form.value.patrol_point_id,
           start_date: form.value.start_date,
           end_date: form.value.end_date,
@@ -624,7 +637,12 @@ onMounted(() => {
               </tr>
 
               <tr v-for="row in paginatedSchedules" :key="row.id">
-                <td class="cell-strong">{{ row.satpam_name }}</td>
+                <td class="cell-strong">
+                  <div>{{ row.satpam_name }}</div>
+                  <small v-if="row.katim_name" style="color: #6366f1; font-weight: 500; font-size: 11px; display: block; margin-top: 2px;">
+                    + KAT: {{ row.katim_name }} (2:2)
+                  </small>
+                </td>
                 <td class="text-secondary">{{ formatDateRange(row) }}</td>
                 <td class="text-secondary">{{ formatShift(row) }}</td>
                 <td class="text-secondary">{{ row.area }}</td>
@@ -687,11 +705,30 @@ onMounted(() => {
           <div v-if="formError" class="modal-error">{{ formError }}</div>
 
           <div class="form-group">
-            <label>Satpam</label>
+            <label>Petugas Satpam</label>
             <select v-model="form.satpam_id">
               <option value="" disabled>Pilih satpam</option>
-              <option v-for="s in satpamOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+              <option v-for="s in satpamOptions" :key="s.id" :value="s.id">
+                {{ s.name }} {{ s.role === 'katim' ? '(KAT)' : '' }}
+              </option>
             </select>
+          </div>
+
+          <div class="form-group">
+            <label>Petugas KAT / Katim (Opsional — Pembagian Putaran 2:2)</label>
+            <select v-model="form.katim_id">
+              <option value="">-- Tanpa KAT (Semua 4 putaran untuk Satpam) --</option>
+              <option
+                v-for="k in satpamOptions.filter(o => o.id !== form.satpam_id)"
+                :key="k.id"
+                :value="k.id"
+              >
+                {{ k.name }} {{ k.role === 'katim' ? '(KAT)' : '' }}
+              </option>
+            </select>
+            <small v-if="form.katim_id" class="field-hint" style="color: #6366f1; margin-top: 4px; display: block;">
+              4 putaran patroli akan otomatis dibagi 2:2 selang-seling (Putaran 1 & 3: Satpam, Putaran 2 & 4: KAT).
+            </small>
           </div>
 
           <!-- TAMBAH: pilih rute -->
