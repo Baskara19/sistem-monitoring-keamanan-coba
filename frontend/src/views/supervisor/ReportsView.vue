@@ -460,7 +460,6 @@
                             {{ report.satpam_name || "-" }}
                           </strong>
 
-                          <small> Badge: {{ report.badge_number || "-" }} </small>
                           <small v-if="report.is_handover" style="display: block; color: #2563eb; font-weight: 600; font-size: 11px;">
                             Handover dari: {{ report.delegated_from_satpam_name }}
                           </small>
