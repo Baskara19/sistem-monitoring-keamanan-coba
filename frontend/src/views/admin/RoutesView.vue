@@ -254,6 +254,10 @@ const printRouteQrs = async (route) => {
             width: 300,
             margin: 1,
             errorCorrectionLevel: "H",
+            color: {
+              dark: "#000000",
+              light: "#00000000",
+            },
           });
 
           return {
@@ -282,6 +286,12 @@ const printRouteQrs = async (route) => {
       .map(
         (item) => `
           <div class="qr-card">
+            <img src="/kai-logo.png" class="card-logo" alt="KAI" />
+
+            <div class="route-label">
+              RUTE: ${route.name}
+            </div>
+
             <div class="sequence">
               TITIK ${item.index}
             </div>
@@ -293,14 +303,17 @@ const printRouteQrs = async (route) => {
             ${
               item.qrImage
                 ? `
-                  <img
-                    src="${item.qrImage}"
-                    class="qr-image"
-                    alt="QR Code ${item.name}"
-                  />
+                  <div class="qr-stage">
+                    <img src="/kai-logo.png" class="qr-watermark" alt="" aria-hidden="true" />
+                    <img
+                      src="${item.qrImage}"
+                      class="qr-image"
+                      alt="QR Code ${item.name}"
+                    />
+                  </div>
                 `
                 : `
-                  <div class="qr-missing">
+                  <div class="qr-stage qr-missing">
                     QR TIDAK TERSEDIA
                   </div>
                 `
@@ -394,7 +407,7 @@ const printRouteQrs = async (route) => {
               border: 1.5px solid #1f2454;
               border-radius: 5px;
 
-              padding: 4mm;
+              padding: 3mm 4mm 2mm;
 
               display: flex;
               flex-direction: column;
@@ -409,17 +422,42 @@ const printRouteQrs = async (route) => {
               overflow: hidden;
             }
 
+            .card-logo {
+              width: 8mm;
+              height: 8mm;
+              object-fit: cover;
+              display: block;
+              margin-bottom: 1mm;
+            }
+
+            .route-label {
+              width: 100%;
+              min-height: 3.5mm;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: #1f2454;
+              font-size: 6px;
+              font-weight: 800;
+              letter-spacing: 0.45px;
+              line-height: 1.15;
+              margin-bottom: 0.5mm;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+
             .sequence {
               font-size: 7px;
               font-weight: 800;
               color: #e87500;
               letter-spacing: 1px;
-              margin-bottom: 1.5mm;
+              margin-bottom: 0.5mm;
             }
 
             .point-name {
               width: 100%;
-              min-height: 9mm;
+              min-height: 6mm;
 
               display: flex;
               align-items: center;
@@ -431,20 +469,45 @@ const printRouteQrs = async (route) => {
 
               line-height: 1.25;
 
-              margin-bottom: 2mm;
+              margin-bottom: 1mm;
+            }
+
+            .qr-stage {
+              width: 52mm;
+              height: 27mm;
+              position: relative;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex: 0 0 27mm;
+            }
+
+            .qr-watermark {
+              position: absolute;
+              z-index: 0;
+              width: 52mm;
+              height: 52mm;
+              object-fit: contain;
+              left: 50%;
+              top: 50%;
+              transform: translate(-50%, -50%);
+              opacity: 0.4;
             }
 
             .qr-image {
-              width: 40mm;
-              height: 40mm;
-
+              width: 27mm;
+              height: 27mm;
+              position: relative;
+              z-index: 1;
               display: block;
 
               image-rendering: pixelated;
             }
 
             .qr-code {
-              margin-top: 2mm;
+              margin-top: 0.8mm;
+              position: relative;
+              z-index: 2;
 
               max-width: 100%;
 
@@ -457,7 +520,9 @@ const printRouteQrs = async (route) => {
             }
 
             .instruction {
-              margin-top: 1.5mm;
+              margin-top: 0.6mm;
+              position: relative;
+              z-index: 2;
 
               font-size: 6px;
               color: #888;
@@ -466,9 +531,6 @@ const printRouteQrs = async (route) => {
             }
 
             .qr-missing {
-              width: 40mm;
-              height: 40mm;
-
               display: flex;
               align-items: center;
               justify-content: center;

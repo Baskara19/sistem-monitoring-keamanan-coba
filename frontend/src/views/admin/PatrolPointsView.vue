@@ -112,6 +112,10 @@ const showQrCode = async (point) => {
       width: 180,
       margin: 1,
       errorCorrectionLevel: "H",
+      color: {
+        dark: "#000000",
+        light: "#00000000",
+      },
     });
 
     showQrModal.value = true;
@@ -195,6 +199,14 @@ body {
   overflow: hidden;
 }
 
+.card-logo {
+  width: 8mm;
+  height: 8mm;
+  object-fit: cover;
+  display: block;
+  margin-bottom: 1mm;
+}
+
 .brand {
   font-size: 11px;
   font-weight: 800;
@@ -226,20 +238,39 @@ body {
 }
 
 .qr-wrapper {
+  width: 52mm;
+  height: 27mm;
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
   margin: 0;
 }
 
+.qr-watermark {
+  position: absolute;
+  z-index: 0;
+  width: 52mm;
+  height: 52mm;
+  object-fit: contain;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.4;
+}
+
 .qr {
-  width: 25mm;
-  height: 25mm;
+  width: 27mm;
+  height: 27mm;
   display: block;
+  position: relative;
+  z-index: 1;
   image-rendering: pixelated;
 }
 
 .code-label {
+  position: relative;
+  z-index: 2;
   font-size: 6px;
   color: #888;
   font-weight: bold;
@@ -248,6 +279,8 @@ body {
 }
 
 .code {
+  position: relative;
+  z-index: 2;
   margin-top: 0.5mm;
   font-size: 8px;
   font-weight: 800;
@@ -259,6 +292,8 @@ body {
 }
 
 .instruction {
+  position: relative;
+  z-index: 2;
   margin-top: 1.5mm;
   padding-top: 1mm;
   border-top: 1px solid #ddd;
@@ -294,6 +329,8 @@ body {
       <body>
         <div class="print-container">
 
+          <img src="/kai-logo.png" class="card-logo" alt="KAI" />
+
           <div class="brand">
             KAI SECURITY
           </div>
@@ -311,6 +348,7 @@ body {
           </div>
 
           <div class="qr-wrapper">
+            <img src="/kai-logo.png" class="qr-watermark" alt="" aria-hidden="true" />
             <img
               src="${qrImage.value}"
               class="qr"
