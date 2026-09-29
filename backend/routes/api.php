@@ -42,6 +42,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/patrol-points', [AdminController::class, 'patrolPoints']);
         Route::post('/patrol-points', [AdminController::class, 'storePatrolPoint']);
         Route::get('/patrol-points/{id}/qr', [AdminController::class, 'patrolPointQr']);
+        Route::get('/patrol-points/archived', [PatrolPointController::class, 'archived']);
+        Route::put('/patrol-points/{id}/archive', [PatrolPointController::class, 'archive']);
+        Route::put('/patrol-points/{id}/restore', [PatrolPointController::class, 'restore']);
         Route::put('/patrol-points/{id}', [PatrolPointController::class, 'update']);
         Route::get('/patrol-points/{id}', [PatrolPointController::class, 'show']);
         Route::delete('/patrol-points/{id}', [PatrolPointController::class, 'destroy']);

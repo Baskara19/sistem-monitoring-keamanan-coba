@@ -1,11 +1,12 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import axios from "axios";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import QRCode from "qrcode";
 import Swal from "sweetalert2";
 
 const router = useRouter();
+const route = useRoute();
 const patrolPoints = ref([]);
 const loading = ref(true);
 const error = ref("");
@@ -13,6 +14,7 @@ const search = ref("");
 const showQrModal = ref(false);
 const selectedQrPoint = ref(null);
 const qrImage = ref("");
+const archiveMode = computed(() => route.path.endsWith("/archive"));
 
 const user = ref({
   id: null,
@@ -48,7 +50,7 @@ const fetchPatrolPoints = async () => {
 
   try {
     const response = await axios.get(
-      "https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points",
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points${archiveMode.value ? "/archived" : ""}`,
       getAuthHeaders(),
     );
 
@@ -84,6 +86,14 @@ const goToCreate = () => {
 
 const goToRoutes = () => {
   router.push("/admin/routes");
+};
+
+const goToPatrolPoints = () => {
+  router.push("/admin/patrol-points");
+};
+
+const goToArchivedPatrolPoints = () => {
+  router.push("/admin/patrol-points/archive");
 };
 
 const editPatrolPoint = (id) => {
@@ -336,13 +346,17 @@ body {
     printWindow.print();
   };
 };
-const deletePatrolPoint = async (id) => {
+const archivePatrolPoint = async (id) => {
+  const point = patrolPoints.value.find((item) => item.id === id);
+
+  if (!point) return;
+
   const result = await Swal.fire({
     icon: "warning",
-    title: "Hapus Titik Patroli?",
-    text: "Data titik patroli yang dihapus tidak dapat dikembalikan.",
+    title: "Arsipkan Titik Patroli?",
+    text: `"${point.name}" akan dinonaktifkan dan dipindahkan ke arsip. Data tetap tersimpan.`,
     showCancelButton: true,
-    confirmButtonText: "Ya, Hapus",
+    confirmButtonText: "Ya, Arsipkan",
     cancelButtonText: "Batal",
     reverseButtons: true,
     focusCancel: true,
@@ -351,15 +365,16 @@ const deletePatrolPoint = async (id) => {
   if (!result.isConfirmed) return;
 
   try {
-    await axios.delete(
-      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${id}`,
+    await axios.put(
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${id}/archive`,
+      {},
       getAuthHeaders(),
     );
 
     await Swal.fire({
       icon: "success",
-      title: "Berhasil!",
-      text: "Titik patroli berhasil dihapus.",
+      title: "Berhasil Diarsipkan!",
+      text: "Titik patroli telah dinonaktifkan dan dipindahkan ke arsip.",
       confirmButtonText: "OK",
     });
 
@@ -369,8 +384,51 @@ const deletePatrolPoint = async (id) => {
 
     await Swal.fire({
       icon: "error",
-      title: "Gagal Menghapus",
-      text: err.response?.data?.message || "Gagal menghapus titik patroli.",
+      title: "Gagal Mengarsipkan",
+      text: err.response?.data?.message || "Gagal mengarsipkan titik patroli.",
+      confirmButtonText: "OK",
+    });
+  }
+};
+
+const restorePatrolPoint = async (id) => {
+  const point = patrolPoints.value.find((item) => item.id === id);
+
+  if (!point) return;
+
+  const result = await Swal.fire({
+    icon: "warning",
+    title: "Pulihkan Titik Patroli?",
+    text: `"${point.name}" akan diaktifkan kembali.`,
+    showCancelButton: true,
+    confirmButtonText: "Ya, Pulihkan",
+    cancelButtonText: "Batal",
+    reverseButtons: true,
+    focusCancel: true,
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    await axios.put(
+      `https://sistem-monitoring-keamanan-be.onrender.com/api/admin/patrol-points/${id}/restore`,
+      {},
+      getAuthHeaders(),
+    );
+
+    await Swal.fire({
+      icon: "success",
+      title: "Berhasil Dipulihkan",
+      text: "Titik patroli telah diaktifkan kembali.",
+      confirmButtonText: "OK",
+    });
+
+    await fetchPatrolPoints();
+  } catch (err) {
+    await Swal.fire({
+      icon: "error",
+      title: "Gagal Memulihkan",
+      text: err.response?.data?.message || "Gagal memulihkan titik patroli.",
       confirmButtonText: "OK",
     });
   }
@@ -391,6 +449,8 @@ onMounted(() => {
   loadUser();
   fetchPatrolPoints();
 });
+
+watch(() => route.path, fetchPatrolPoints);
 </script>
 
 <template>
@@ -448,7 +508,7 @@ onMounted(() => {
 
       <header class="topbar">
         <div class="page-heading">
-          <h1>Titik Patroli</h1>
+          <h1>{{ archiveMode ? "Arsip Titik Patroli" : "Titik Patroli" }}</h1>
 
           <p>Kelola titik pemeriksaan patroli keamanan.</p>
         </div>
@@ -477,7 +537,7 @@ onMounted(() => {
           <div>
             <div class="section-label">MONITORING PATROLI</div>
 
-            <h2>Daftar Titik Patroli</h2>
+            <h2>{{ archiveMode ? "Titik Patroli Diarsipkan" : "Daftar Titik Patroli" }}</h2>
 
             <p>
               Total {{ filteredPatrolPoints.length }}
@@ -486,13 +546,17 @@ onMounted(() => {
           </div>
 
           <div class="header-actions">
-            <button class="btn-outline" @click="goToRoutes">🗺 Kelola Rute</button>
-
-            <button class="btn-primary" @click="goToCreate">
-              <span> + </span>
-
-              Tambah Titik Patroli
+            <button v-if="archiveMode" class="btn-outline" @click="goToPatrolPoints">
+              Kembali ke Titik Patroli
             </button>
+            <template v-else>
+              <button class="btn-outline" @click="goToArchivedPatrolPoints">📁 Arsip</button>
+              <button class="btn-outline" @click="goToRoutes">🗺 Kelola Rute</button>
+              <button class="btn-primary" @click="goToCreate">
+                <span> + </span>
+                Tambah Titik Patroli
+              </button>
+            </template>
           </div>
         </div>
 
@@ -560,11 +624,11 @@ onMounted(() => {
                 <td colspan="6" class="empty-state">
                   <div class="empty-icon">⌖</div>
 
-                  <strong> Belum ada titik patroli </strong>
+                  <strong>{{ archiveMode ? "Belum ada titik di arsip" : "Belum ada titik patroli" }}</strong>
 
-                  <p>Tambahkan titik patroli pertama untuk memulai sistem monitoring.</p>
+                  <p v-if="!archiveMode">Tambahkan titik patroli pertama untuk memulai sistem monitoring.</p>
 
-                  <button class="btn-primary small" @click="goToCreate">+ Tambah Titik</button>
+                  <button v-if="!archiveMode" class="btn-primary small" @click="goToCreate">+ Tambah Titik</button>
                 </td>
               </tr>
 
@@ -620,17 +684,26 @@ onMounted(() => {
 
                 <td>
                   <div class="action-buttons">
-                    <button class="btn-icon" @click="editPatrolPoint(point.id)" title="Edit">
-                      ✏️
-                    </button>
-
                     <button
-                      class="btn-icon btn-icon-danger"
-                      @click="deletePatrolPoint(point.id)"
-                      title="Hapus"
+                      v-if="archiveMode"
+                      class="btn-icon"
+                      @click="restorePatrolPoint(point.id)"
+                      title="Pulihkan"
                     >
-                      🗑️
+                      ↻
                     </button>
+                    <template v-else>
+                      <button class="btn-icon" @click="editPatrolPoint(point.id)" title="Edit">
+                        ✏️
+                      </button>
+                      <button
+                        class="btn-icon btn-icon-danger"
+                        @click="archivePatrolPoint(point.id)"
+                        title="Arsipkan"
+                      >
+                        🗑️
+                      </button>
+                    </template>
                   </div>
                 </td>
               </tr>

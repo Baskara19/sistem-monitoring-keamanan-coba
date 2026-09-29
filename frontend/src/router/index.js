@@ -77,6 +77,16 @@ const router = createRouter({
     },
 
     {
+      path: "/admin/patrol-points/archive",
+      name: "admin-patrol-points-archive",
+      component: PatrolPointsView,
+      meta: {
+        requiresAuth: true,
+        role: "admin",
+      },
+    },
+
+    {
       path: "/admin/patrol-points/create",
       name: "admin-patrol-points-create",
       component: AddPatrolPointView,

@@ -123,4 +123,37 @@ public function update(Request $request, $id)
         'message' => 'Titik patroli berhasil dihapus.'
     ]);
 }
+
+    public function archived()
+    {
+        $patrolPoints = PatrolPoint::where('status', 'nonaktif')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'patrol_points' => $patrolPoints,
+        ]);
+    }
+
+    public function archive($id)
+    {
+        $patrolPoint = PatrolPoint::findOrFail($id);
+        $patrolPoint->update(['status' => 'nonaktif']);
+
+        return response()->json([
+            'message' => 'Titik patroli berhasil dipindahkan ke arsip.',
+            'patrol_point' => $patrolPoint,
+        ]);
+    }
+
+    public function restore($id)
+    {
+        $patrolPoint = PatrolPoint::findOrFail($id);
+        $patrolPoint->update(['status' => 'aktif']);
+
+        return response()->json([
+            'message' => 'Titik patroli berhasil diaktifkan kembali.',
+            'patrol_point' => $patrolPoint,
+        ]);
+    }
 }

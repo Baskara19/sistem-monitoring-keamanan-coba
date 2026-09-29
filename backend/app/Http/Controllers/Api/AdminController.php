@@ -41,7 +41,7 @@ class AdminController extends Controller
     }
     public function patrolPoints()
 {
-    $patrolPoints = PatrolPoint::latest()->get();
+        $patrolPoints = PatrolPoint::where('status', 'aktif')->latest()->get();
 
     return response()->json([
         'patrol_points' => $patrolPoints
@@ -276,12 +276,26 @@ public function destroyRoute($id)
 }
 public function archivedUsers()
 {
-    $users = User::where('status', 'nonaktif')
+    $users = User::with('masterLocation')
+        ->where('status', 'nonaktif')
         ->orderBy('name')
-        ->get();
+        ->get()
+        ->map(fn (User $user) => [
+            'id'          => $user->id,
+            'name'        => $user->name,
+            'username'    => $user->username,
+            'nipkwt'      => $user->nipkwt,
+            'email'       => $user->email,
+            'role'        => $user->role,
+            'tim'         => $user->tim,
+            'phone'       => $user->phone,
+            'location'    => $user->masterLocation?->name,
+            'location_id' => $user->location_id,
+            'status'      => $user->status,
+        ]);
 
     return response()->json([
-        'users' => $users
+        'users' => $users,
     ]);
 }
 }

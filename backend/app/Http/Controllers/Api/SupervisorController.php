@@ -606,14 +606,16 @@ if (! $locationId) {
 
 $satpam = Satpam::with('user')
     ->where('id', $validated['satpam_id'])
+    ->where('status', 'aktif')
     ->whereHas('user', function ($query) use ($locationId) {
-        $query->where('location_id', $locationId);
+        $query->where('location_id', $locationId)
+            ->where('status', 'aktif');
     })
     ->first();
 
 if (! $satpam) {
     return response()->json([
-        'message' => 'Satpam tidak berada di lokasi supervisor.',
+        'message' => 'Satpam tidak aktif atau tidak berada di lokasi supervisor.',
     ], 403);
 }
 
@@ -698,14 +700,16 @@ if (! $locationId) {
 
 $satpam = Satpam::with('user')
     ->where('id', $validated['satpam_id'])
+    ->where('status', 'aktif')
     ->whereHas('user', function ($query) use ($locationId) {
-        $query->where('location_id', $locationId);
+        $query->where('location_id', $locationId)
+            ->where('status', 'aktif');
     })
     ->first();
 
 if (! $satpam) {
     return response()->json([
-        'message' => 'Satpam tidak berada di lokasi supervisor.',
+        'message' => 'Satpam tidak aktif atau tidak berada di lokasi supervisor.',
     ], 403);
 }
 
@@ -804,7 +808,8 @@ public function scheduleDestroy(Request $request, $id)
     $satpam = Satpam::with('user:id,name,location_id')
         ->where('status', 'aktif')
         ->whereHas('user', function ($query) use ($locationId) {
-            $query->where('location_id', $locationId);
+            $query->where('location_id', $locationId)
+                ->where('status', 'aktif');
         })
         ->get()
         ->map(fn (Satpam $s) => [
