@@ -106,8 +106,7 @@ public function summary(Request $request)
 
     /*
     |--------------------------------------------------------------------------
-    | Ambil semua log yang berasal dari jadwal di atas.
-    | Tidak lagi filter by date — patrol_round sudah jadi identitas putaran.
+    | Ambil scan langsung, scan handover masuk, dan scan handover dari targetnya.
     |--------------------------------------------------------------------------
     */
 
@@ -118,8 +117,8 @@ public function summary(Request $request)
         ->where(function ($query) use ($satpam, $scheduleDetailIds, $acceptedHandoverIds) {
             $query->where(function ($assignedLogs) use ($satpam, $scheduleDetailIds) {
                 $assignedLogs->whereIn('schedule_detail_id', $scheduleDetailIds)
-                    ->where(function ($actorLogs) use ($satpam) {
-                        $actorLogs->where('satpam_id', $satpam->id)
+                    ->where(function ($relatedLogs) use ($satpam) {
+                        $relatedLogs->where('satpam_id', $satpam->id)
                             ->orWhere('delegated_from_satpam_id', $satpam->id);
                     });
             });
@@ -139,16 +138,25 @@ public function summary(Request $request)
     |--------------------------------------------------------------------------
     */
 
-    // Completed: unique kombinasi detail+round yang sudah punya status aktif
+    // Completed hanya menghitung scan yang benar-benar dilakukan petugas ini.
     $completed = $logs
+        ->where('satpam_id', $satpam->id)
         ->whereIn('scan_status', ['berhasil', 'terlambat', 'terlewat', 'skip', 'anomali'])
         ->map(fn ($log) => $log->schedule_detail_id . '-' . $log->patrol_round)
         ->unique()
         ->count();
 
-    $skip = $logs->where('scan_status', 'skip')->count();
+    // Sisa berkurang saat target selesai, termasuk jika diselesaikan lewat handover.
+    $completedTargets = $logs
+        ->whereIn('scan_status', ['berhasil', 'terlambat', 'terlewat', 'skip', 'anomali'])
+        ->map(fn ($log) => $log->schedule_detail_id . '-' . $log->patrol_round)
+        ->unique()
+        ->count();
 
-    $anomaly = $logs->where('scan_status', 'anomali')->count();
+    $performedLogs = $logs->where('satpam_id', $satpam->id);
+    $skip = $performedLogs->where('scan_status', 'skip')->count();
+
+    $anomaly = $performedLogs->where('scan_status', 'anomali')->count();
 
     /*
     |--------------------------------------------------------------------------
@@ -156,7 +164,7 @@ public function summary(Request $request)
     |--------------------------------------------------------------------------
     */
 
-    $remaining = max(0, $scheduled - $completed);
+    $remaining = max(0, $scheduled - $completedTargets);
 
     return response()->json([
         'scheduled'     => $scheduled,
