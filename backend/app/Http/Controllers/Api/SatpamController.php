@@ -97,12 +97,12 @@ public function summary(Request $request)
         }
     }
 
-    // Titik yang diterima via handover hari ini
-    $acceptedHandoversCount = PatrolHandover::where('to_satpam_id', $satpam->id)
+    // Target tambahan yang diterima via handover hari ini.
+    $acceptedHandovers = PatrolHandover::where('to_satpam_id', $satpam->id)
         ->whereDate('handover_date', today())
         ->where('status', 'accepted')
-        ->count();
-    $scheduled += $acceptedHandoversCount;
+        ->get(['id']);
+    $scheduled += $acceptedHandovers->count();
 
     /*
     |--------------------------------------------------------------------------
@@ -113,9 +113,21 @@ public function summary(Request $request)
 
     $scheduleDetailIds = $scheduleDetails->pluck('id');
 
-    $logs = PatrolLog::where('satpam_id', $satpam->id)
-        ->whereIn('schedule_detail_id', $scheduleDetailIds)
-        ->whereNotNull('patrol_round')
+    $acceptedHandoverIds = $acceptedHandovers->pluck('id');
+    $logs = PatrolLog::whereNotNull('patrol_round')
+        ->where(function ($query) use ($satpam, $scheduleDetailIds, $acceptedHandoverIds) {
+            $query->where(function ($assignedLogs) use ($satpam, $scheduleDetailIds) {
+                $assignedLogs->whereIn('schedule_detail_id', $scheduleDetailIds)
+                    ->where(function ($actorLogs) use ($satpam) {
+                        $actorLogs->where('satpam_id', $satpam->id)
+                            ->orWhere('delegated_from_satpam_id', $satpam->id);
+                    });
+            });
+
+            if ($acceptedHandoverIds->isNotEmpty()) {
+                $query->orWhereIn('patrol_handover_id', $acceptedHandoverIds);
+            }
+        })
         ->get();
 
     /*
