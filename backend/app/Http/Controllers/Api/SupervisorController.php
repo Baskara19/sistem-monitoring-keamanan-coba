@@ -425,20 +425,31 @@ class SupervisorController extends Controller
             ->whereBetween('handover_date', [$start->toDateString(), $end->toDateString()])
             ->get(['from_satpam_id', 'status']);
 
-        // Hitung total schedule_details yang dijadwalkan per satpam di bulan ini.
-        // "scheduled" = jumlah baris jadwal (titik patroli) yang ditetapkan ke satpam
-        // pada jadwal yang periode-nya overlap dengan bulan yang dipilih.
-        // Nilai ini menjadi "target" pada bar chart PDF per satpam.
-        $scheduledCounts = ScheduleDetail::query()
+        // Hitung putaran target per hari agar pembagian Satpam/KAT mengikuti jadwal.
+        $scheduledDetails = ScheduleDetail::with('schedule:id,katim_id,start_date,end_date')
             ->whereIn('satpam_id', $satpams->pluck('id'))
             ->whereHas('schedule', function ($q) use ($start, $end) {
                 $q->where('status', 'aktif')
                   ->whereDate('start_date', '<=', $end)
                   ->whereDate('end_date', '>=', $start);
             })
-            ->selectRaw('satpam_id, COUNT(*) * 4 as total_scheduled')
-            ->groupBy('satpam_id')
-            ->pluck('total_scheduled', 'satpam_id');
+            ->get(['id', 'schedule_id', 'satpam_id']);
+
+        $roundService = new PatrolRoundService();
+        $scheduledCounts = [];
+        foreach ($scheduledDetails as $detail) {
+            $activeStart = Carbon::parse($detail->schedule->start_date)->max($start);
+            $activeEnd = Carbon::parse($detail->schedule->end_date)->min($end);
+
+            for ($date = $activeStart->copy(); $date->lte($activeEnd); $date->addDay()) {
+                for ($round = 1; $round <= 4; $round++) {
+                    $assignedSatpamId = $roundService->getAssignedSatpamId($detail, $round, $date);
+                    if ($assignedSatpamId !== null) {
+                        $scheduledCounts[$assignedSatpamId] = ($scheduledCounts[$assignedSatpamId] ?? 0) + 1;
+                    }
+                }
+            }
+        }
 
         $countsFor = function ($satpamLogs) {
             return [

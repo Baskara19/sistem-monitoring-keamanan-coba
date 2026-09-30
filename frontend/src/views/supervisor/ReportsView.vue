@@ -682,6 +682,9 @@
             </div>
             <div class="print-summary-grid">
               <div>
+                <small>Target jadwal</small><strong>{{ recapScheduledTotal }}</strong>
+              </div>
+              <div>
                 <small>Total scan</small><strong>{{ recap.monthly.total }}</strong>
               </div>
               <div>
@@ -1061,6 +1064,9 @@ const handoverRequesters = computed(() =>
   recap.value.satpams
     .filter((satpam) => satpam.handover_accepted > 0)
     .sort((left, right) => right.handover_accepted - left.handover_accepted),
+);
+const recapScheduledTotal = computed(() =>
+  recap.value.satpams.reduce((total, satpam) => total + (satpam.scheduled || 0), 0),
 );
 const recapChartTotal = computed(() =>
   ["berhasil", "terlambat", "anomali", "skip", "terlewat"].reduce(
@@ -3525,6 +3531,9 @@ tbody tr:last-child td {
     margin-top: 5px;
     color: #1f2454;
     font-size: 15px;
+  }
+  .print-leader-table {
+    margin-top: 20px;
   }
   .print-leader-table table {
     width: 100%;
