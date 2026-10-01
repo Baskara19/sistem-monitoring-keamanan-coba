@@ -255,44 +255,76 @@ class PatrolRoundService
     }
 
     /**
-     * Pilih sesi yang belum selesai. Sesi sebelumnya masih dapat dikejar
-     * sebagai terlambat sampai batas dua target sesi berikutnya.
+     * Tentukan sesi putaran yang akan diproses saat melakukan scan atau skip.
      *
+     * Prioritas pemilihan putaran:
+     * 1. Putaran saat ini ($currentRound berdasarkan waktu aktif shift):
+     *    Jika putaran ini belum selesai pada titik ini DAN petugas berwenang atas putaran ini
+     *    (atau jika $authorizedRounds null), maka langsung proses putaran saat ini.
+     *    Hal ini mencegah putaran aktif terkunci hanya karena putaran sebelumnya terlewat/belum discan
+     *    (terutama pada pergantian jadwal petugas KAT / Satpam).
+     * 2. Putaran sebelumnya yang belum selesai (terlambat):
+     *    Jika putaran saat ini bukan tugas petugas ini atau sudah selesai di titik ini,
+     *    cek apakah ada putaran sebelumnya yang merupakan tugas petugas ini yang belum selesai
+     *    dan masih dalam batas toleransi keterlambatan ($lateUntil).
+     * 3. Fallback: gunakan $currentRound agar validasi otorisasi / duplikasi scan memberikan pesan yang tepat.
+     *
+     * @param  string      $shiftLabel
+     * @param  Carbon      $shiftAnchor
+     * @param  Carbon      $scanTime
+     * @param  int[]       $completedRounds
+     * @param  int[]|null  $authorizedRounds  Daftar putaran yang berhak discan oleh petugas ini (opsional)
      * @return array{round:int,is_late:bool}
      */
     public function resolveRoundForAttempt(
         string $shiftLabel,
         Carbon $shiftAnchor,
         Carbon $scanTime,
-        array $completedRounds = []
+        array $completedRounds = [],
+        ?array $authorizedRounds = null
     ): array {
         $currentRound = $this->resolveRound($shiftLabel, $shiftAnchor, $scanTime);
         $completedRounds = array_map('intval', $completedRounds);
+        $isAuth = fn (int $r) => $authorizedRounds === null || in_array($r, $authorizedRounds, true);
 
+        // 1. Prioritaskan putaran saat ini jika petugas berwenang dan titik belum selesai di putaran ini
+        if ($isAuth($currentRound) && ! in_array($currentRound, $completedRounds, true)) {
+            $normalUntil = $currentRound < 4
+                ? $this->roundTargetCarbon($shiftLabel, $currentRound + 1, $shiftAnchor)
+                : $this->roundLateUntil($shiftLabel, $currentRound, $shiftAnchor);
+            $isLate = $normalUntil ? $scanTime->gte($normalUntil) : false;
+
+            return [
+                'round'   => $currentRound,
+                'is_late' => $isLate,
+            ];
+        }
+
+        // 2. Cek putaran sebelumnya yang merupakan wewenang petugas ini dan belum selesai (kejar terlambat)
         for ($round = 1; $round <= $currentRound; $round++) {
             if (in_array($round, $completedRounds, true)) {
                 continue;
             }
 
-            $target = $this->roundTargetCarbon($shiftLabel, $round, $shiftAnchor);
-            $normalUntil = $round < 4
-                ? $this->roundTargetCarbon($shiftLabel, $round + 1, $shiftAnchor)
-                : $this->roundLateUntil($shiftLabel, $round, $shiftAnchor);
+            if (! $isAuth($round)) {
+                continue;
+            }
+
             $lateUntil = $this->roundLateUntil($shiftLabel, $round, $shiftAnchor);
-
-            if ($target && $scanTime->lt($target)) {
-                return ['round' => $round, 'is_late' => false];
-            }
-
-            if ($normalUntil && $scanTime->lt($normalUntil)) {
-                return ['round' => $round, 'is_late' => false];
-            }
-
             if ($lateUntil && $scanTime->lt($lateUntil)) {
-                return ['round' => $round, 'is_late' => true];
+                $normalUntil = $round < 4
+                    ? $this->roundTargetCarbon($shiftLabel, $round + 1, $shiftAnchor)
+                    : $lateUntil;
+                $isLate = $normalUntil ? $scanTime->gte($normalUntil) : false;
+
+                return [
+                    'round'   => $round,
+                    'is_late' => $isLate,
+                ];
             }
         }
 
+        // 3. Fallback ke putaran saat ini
         $target = $this->roundTargetCarbon($shiftLabel, $currentRound, $shiftAnchor);
 
         return [
@@ -372,7 +404,8 @@ class PatrolRoundService
      */
     public function isRoundAssignedTo(ScheduleDetail $detail, int $round, int $satpamId, Carbon|string|null $date = null): bool
     {
-        return $this->getAssignedSatpamId($detail, $round, $date) === $satpamId;
+        $assignedId = $this->getAssignedSatpamId($detail, $round, $date);
+        return $assignedId !== null && (int) $assignedId === (int) $satpamId;
     }
 
     /**

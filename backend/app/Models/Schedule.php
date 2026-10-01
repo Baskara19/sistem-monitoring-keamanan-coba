@@ -16,6 +16,11 @@ class Schedule extends Model
         'status',
     ];
 
+    protected $casts = [
+        'supervisor_id' => 'integer',
+        'katim_id'      => 'integer',
+    ];
+
     // Relasi ke supervisor
     public function supervisor()
     {

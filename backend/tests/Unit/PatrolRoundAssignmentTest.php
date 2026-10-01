@@ -207,5 +207,65 @@ class PatrolRoundAssignmentTest extends TestCase
 
         $this->assertSame('2026-10-01', $anchor->toDateString());
     }
+
+    /**
+     * Uji bahwa ketika putaran 1 belum discan sama sekali, petugas putaran 2
+     * tetap bisa langsung scan putaran 2 pada jamnya tanpa dipaksa / diblokir putaran 1.
+     */
+    public function test_guard_can_scan_round_2_even_if_round_1_was_not_scanned(): void
+    {
+        $service = new PatrolRoundService();
+        $anchor = Carbon::parse('2026-10-01');
+
+        // Waktu scan jam 11:30 (jendela Putaran 2 Shift Pagi: 11:00-13:00)
+        $scanTime = Carbon::parse('2026-10-01 11:30:00');
+
+        // Petugas B hanya punya wewenang putaran [2, 4] (misal KAT)
+        // Putaran 1 belum pernah discan (completedRounds = [])
+        $decision = $service->resolveRoundForAttempt('Pagi', $anchor, $scanTime, [], [2, 4]);
+
+        $this->assertSame(2, $decision['round'], 'Petugas B harus langsung diarahkan ke Putaran 2');
+        $this->assertFalse($decision['is_late'], 'Scan pada jam putaran 2 harus tepat waktu (bukan terlambat)');
+    }
+
+    /**
+     * Uji bahwa ketika putaran 2 belum discan sama sekali, petugas putaran 3
+     * tetap bisa langsung scan putaran 3 pada jamnya tanpa terganjal putaran 2.
+     */
+    public function test_guard_can_scan_round_3_even_if_round_2_was_not_scanned(): void
+    {
+        $service = new PatrolRoundService();
+        $anchor = Carbon::parse('2026-10-01');
+
+        // Waktu scan jam 13:15 (jendela Putaran 3 Shift Pagi: 13:00-14:00)
+        $scanTime = Carbon::parse('2026-10-01 13:15:00');
+
+        // Petugas A punya wewenang putaran [1, 3]
+        // Putaran 1 sudah selesai ([1]), putaran 2 terlewat/belum discan
+        $decision = $service->resolveRoundForAttempt('Pagi', $anchor, $scanTime, [1], [1, 3]);
+
+        $this->assertSame(3, $decision['round'], 'Petugas A harus langsung diarahkan ke Putaran 3');
+        $this->assertFalse($decision['is_late'], 'Scan pada jam putaran 3 harus tepat waktu (bukan terlambat)');
+    }
+
+    /**
+     * Uji bahwa jika petugas putaran 1 scan saat sudah masuk jam putaran 2 (terlambat),
+     * dia tetap bisa mengejar putaran 1 miliknya sebagai terlambat.
+     */
+    public function test_guard_can_catch_up_own_earlier_round_as_late(): void
+    {
+        $service = new PatrolRoundService();
+        $anchor = Carbon::parse('2026-10-01');
+
+        // Waktu scan jam 11:15 (jendela Putaran 2 Shift Pagi: 11:00-13:00)
+        $scanTime = Carbon::parse('2026-10-01 11:15:00');
+
+        // Petugas A punya wewenang putaran [1, 3], dan belum selesai putaran 1
+        // Karena putaran 2 bukan milik Petugas A, scan dialihkan ke Putaran 1 sebagai terlambat
+        $decision = $service->resolveRoundForAttempt('Pagi', $anchor, $scanTime, [], [1, 3]);
+
+        $this->assertSame(1, $decision['round'], 'Petugas A harus diarahkan mengejar Putaran 1 miliknya');
+        $this->assertTrue($decision['is_late'], 'Scan putaran 1 di jam putaran 2 harus berstatus terlambat');
+    }
 }
 

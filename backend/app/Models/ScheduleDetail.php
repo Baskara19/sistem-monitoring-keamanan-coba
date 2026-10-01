@@ -17,6 +17,13 @@ class ScheduleDetail extends Model
 
     protected $appends = ['shift_label'];
 
+    protected $casts = [
+        'schedule_id'     => 'integer',
+        'satpam_id'       => 'integer',
+        'patrol_point_id' => 'integer',
+        'sequence_order'  => 'integer',
+    ];
+
     public function schedule()
     {
         return $this->belongsTo(Schedule::class);

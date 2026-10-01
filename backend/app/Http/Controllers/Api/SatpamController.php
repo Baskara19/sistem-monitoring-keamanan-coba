@@ -525,30 +525,37 @@ public function summary(Request $request)
             ->values()
             ->all();
 
+        // Kumpulkan putaran yang berhak discan oleh satpam ini (tugas langsung atau accepted handover)
+        $authorizedRounds = [];
+        for ($r = 1; $r <= 4; $r++) {
+            $hasAcceptedHandover = $handoversReceived
+                ->where('schedule_detail_id', $detail->id)
+                ->where('status', 'accepted')
+                ->where('patrol_round', $r)
+                ->isNotEmpty();
+
+            if ($hasAcceptedHandover || $roundService->isRoundAssignedTo($detail, $r, $satpam->id, $shiftAnchor)) {
+                $authorizedRounds[] = $r;
+            }
+        }
+
         $roundDecision = $roundService->resolveRoundForAttempt(
             $detail->shift_label,
             $shiftAnchor,
             now(),
-            $completedRounds
+            $completedRounds,
+            $authorizedRounds
         );
         $activeRound = $roundDecision['round'];
         $isSessionLate = $roundDecision['is_late'];
 
-        // Cek apakah ada handover yang diterima untuk jadwal dan titik ini
+        // Cek apakah ada handover yang diterima untuk jadwal dan titik ini pada putaran aktif
         $acceptedHandover = $handoversReceived
             ->where('schedule_detail_id', $detail->id)
             ->where('status', 'accepted')
             ->first(function ($h) use ($activeRound) {
                 return (int) $h->patrol_round === (int) $activeRound;
-            })
-            ?? $handoversReceived
-                ->where('schedule_detail_id', $detail->id)
-                ->where('status', 'accepted')
-                ->first(function ($h) {
-                    return ! PatrolLog::where('patrol_handover_id', $h->id)
-                        ->whereIn('scan_status', self::FINAL_SCAN_STATUSES)
-                        ->exists();
-                });
+            });
 
         $activeHandover = null;
         $round = $activeRound;
@@ -564,11 +571,7 @@ public function summary(Request $request)
                 ->where('schedule_detail_id', $detail->id)
                 ->where('status', 'pending')
                 ->where('patrol_round', $activeRound)
-                ->first()
-                ?? $handoversReceived
-                    ->where('schedule_detail_id', $detail->id)
-                    ->where('status', 'pending')
-                    ->first();
+                ->first();
 
             if ($pendingHandover) {
                 return [
