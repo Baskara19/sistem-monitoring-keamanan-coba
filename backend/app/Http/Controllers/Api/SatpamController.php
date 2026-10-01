@@ -674,16 +674,26 @@ public function schedule(Request $request)
 
     $scheduleDetails = $fetchScheduleDetails($date);
 
-    // Fallback hanya saat membuka hari ini tanpa parameter tanggal eksplisit,
-    // dan sedang di waktu dini hari (sebelum jam 09:00).
+    // Saat membuka hari ini di waktu dini hari, cek juga jadwal kemarin
+    // karena shift Malam masih dapat berjalan setelah tengah malam.
     // Jika hari ini tidak ada jadwal, cek apakah kemarin ada shift Malam yang masih berjalan.
-    if ($scheduleDetails->isEmpty() && ! $isExplicitDate && now()->hour < 9) {
+    if ($scheduleDetails->isEmpty() && $date->isToday() && now()->hour < 9) {
         $yesterday = $date->copy()->subDay();
         $yesterdayDetails = $fetchScheduleDetails($yesterday);
 
         if ($yesterdayDetails->isNotEmpty() && $yesterdayDetails->first()->shift_label === 'Malam') {
             $scheduleDetails = $yesterdayDetails;
             $date = $yesterday;
+        }
+    }
+
+    if ($date->isToday() && $scheduleDetails->isNotEmpty()) {
+        $roundService = new PatrolRoundService();
+        $sessionAnchor = $roundService->resolveSessionAnchor($scheduleDetails->first(), now());
+
+        if (! $sessionAnchor->isSameDay($date)) {
+            $date = $sessionAnchor;
+            $scheduleDetails = $fetchScheduleDetails($date);
         }
     }
 
