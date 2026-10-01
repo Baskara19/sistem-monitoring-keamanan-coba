@@ -558,33 +558,24 @@ public function summary(Request $request)
             $activeHandover = $acceptedHandover;
             $round = $acceptedHandover->patrol_round;
         } else {
-            // Cek apakah ada handover tetapi statusnya belum diterima (pending/rejected/cancelled)
-            $nonAcceptedHandover = $handoversReceived
+            // Hanya handover pending yang menahan scan penerima; status terminal
+            // (rejected/cancelled) mengembalikan otorisasi ke penugasan normal.
+            $pendingHandover = $handoversReceived
                 ->where('schedule_detail_id', $detail->id)
+                ->where('status', 'pending')
                 ->where('patrol_round', $activeRound)
                 ->first()
-                ?? $handoversReceived->where('schedule_detail_id', $detail->id)->first();
+                ?? $handoversReceived
+                    ->where('schedule_detail_id', $detail->id)
+                    ->where('status', 'pending')
+                    ->first();
 
-            if ($nonAcceptedHandover) {
-                if ($nonAcceptedHandover->status === 'pending') {
-                    return [
-                        'authorized'  => false,
-                        'message'     => 'Permintaan handover untuk titik ini belum Anda terima. Silakan terima handover terlebih dahulu.',
-                        'status_code' => 422,
-                    ];
-                } elseif ($nonAcceptedHandover->status === 'rejected') {
-                    return [
-                        'authorized'  => false,
-                        'message'     => 'Permintaan handover untuk titik ini telah ditolak.',
-                        'status_code' => 422,
-                    ];
-                } elseif ($nonAcceptedHandover->status === 'cancelled') {
-                    return [
-                        'authorized'  => false,
-                        'message'     => 'Permintaan handover untuk titik ini telah dibatalkan oleh pemohon.',
-                        'status_code' => 422,
-                    ];
-                }
+            if ($pendingHandover) {
+                return [
+                    'authorized'  => false,
+                    'message'     => 'Permintaan handover untuk titik ini belum Anda terima. Silakan terima handover terlebih dahulu.',
+                    'status_code' => 422,
+                ];
             }
 
             // Validasi penugasan langsung pada putaran ini
