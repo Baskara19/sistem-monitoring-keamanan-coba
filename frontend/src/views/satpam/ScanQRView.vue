@@ -204,7 +204,7 @@ const resultTitle = computed(() => {
 
 const resultSubtitle = computed(() => {
   if (!result.value) return "";
-  if (result.value.scan_status === "terlambat") return "Scan dilakukan setelah jadwal shift berakhir";
+  if (result.value.scan_status === "terlambat") return "Scan dilakukan setelah jadwal putaran berakhir";
   if (result.value.scan_status === "anomali") return "Lokasi Anda di luar radius titik patroli";
   return "Anda berada di titik yang benar";
 });

@@ -13,6 +13,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Log;
 use App\Models\Schedule;
 use App\Models\ScheduleDetail;
 use App\Models\PatrolHandover;
@@ -1144,7 +1145,7 @@ public function history(Request $request)
             $note = 'Jarak scan di luar radius titik patroli.';
         } elseif ($isLate) {
             $scanStatus = 'terlambat';
-            $note = 'Scan dilakukan setelah sesi seharusnya.';
+            $note = 'Scan dilakukan setelah jadwal putaran berakhir.';
         } else {
             $scanStatus = 'berhasil';
             $note = null;
@@ -1177,7 +1178,7 @@ public function history(Request $request)
 
         $messages = [
             'anomali'   => 'Scan tercatat, tapi lokasi Anda di luar radius titik patroli.',
-            'terlambat' => 'Scan tercatat, tapi Anda terlambat dari sesi yang dijadwalkan.',
+            'terlambat' => 'Scan dilakukan setelah jadwal putaran berakhir.',
             'berhasil'  => 'Scan berhasil.',
         ];
 
@@ -1359,9 +1360,25 @@ public function history(Request $request)
             } catch (\Throwable $exception) {
                 report($exception);
 
-                throw ValidationException::withMessages([
-                    'photo' => 'Foto tidak dapat dikonversi ke format WebP.',
-                ]);
+                // Fallback jika konversi WebP gagal: simpan file asli langsung
+                try {
+                    $originalFile = $request->file('photo');
+                    $ext = $originalFile->getClientOriginalExtension() ?: 'jpg';
+                    $fallbackPath = 'reports/' . Str::uuid() . '.' . $ext;
+
+                    if (config('filesystems.disks.s3.key') && Storage::disk('s3')->putFileAs('reports', $originalFile, basename($fallbackPath))) {
+                        $photoPath = Storage::disk('s3')->url($fallbackPath);
+                    } else {
+                        Storage::disk('public')->putFileAs('reports', $originalFile, basename($fallbackPath));
+                        $photoPath = $fallbackPath;
+                    }
+                } catch (\Throwable $fallbackException) {
+                    report($fallbackException);
+
+                    throw ValidationException::withMessages([
+                        'photo' => 'Gagal mengunggah foto laporan. Silakan coba lagi.',
+                    ]);
+                }
             }
         }
 
@@ -1434,15 +1451,18 @@ public function history(Request $request)
 
             $path = 'reports/' . Str::uuid() . '.webp';
 
-            // Disimpan di Supabase Storage (disk "s3", S3-compatible) karena
-            // disk lokal Render bersifat ephemeral — file hilang tiap
-            // container restart/redeploy. Return full URL-nya langsung
-            // supaya frontend gak perlu tau di mana file-nya disimpan.
-            if (! Storage::disk('s3')->put($path, $contents)) {
-                throw new \RuntimeException('Unable to store the converted image.');
+            // Disimpan di Supabase Storage (disk "s3", S3-compatible) jika tersedia,
+            // atau fallback ke disk public lokal.
+            try {
+                if (config('filesystems.disks.s3.key') && Storage::disk('s3')->put($path, $contents)) {
+                    return Storage::disk('s3')->url($path);
+                }
+            } catch (\Throwable $s3Exception) {
+                Log::warning('S3 upload failed, falling back to public disk: ' . $s3Exception->getMessage());
             }
 
-            return Storage::disk('s3')->url($path);
+            Storage::disk('public')->put($path, $contents);
+            return $path;
         } finally {
             imagedestroy($image);
         }

@@ -121,8 +121,20 @@
           @change="onPhotoSelected"
         />
 
-        <button type="button" class="upload-box" @click="fileInputRef.click()">
-          <template v-if="photoPreview">
+        <button
+          type="button"
+          class="upload-box"
+          :disabled="compressingPhoto"
+          @click="fileInputRef.click()"
+        >
+          <template v-if="compressingPhoto">
+            <div class="upload-loading">
+              <div class="spinner"></div>
+              <span>Mengoptimasi foto...</span>
+            </div>
+          </template>
+
+          <template v-else-if="photoPreview">
             <img :src="photoPreview" alt="Preview foto" class="upload-preview" />
             <span class="upload-replace">Tap untuk ganti foto</span>
           </template>
@@ -136,13 +148,13 @@
               </svg>
             </div>
             <span class="upload-title">Tap untuk unggah foto</span>
-            <span class="upload-hint">Maks. 5MB / foto</span>
+            <span class="upload-hint">Foto otomatis dioptimasi</span>
           </template>
         </button>
       </div>
 
-      <button class="btn-save" type="button" :disabled="submitting" @click="submitReport">
-        {{ submitting ? "Menyimpan..." : "Simpan Laporan" }}
+      <button class="btn-save" type="button" :disabled="submitting || compressingPhoto" @click="submitReport">
+        {{ submitting ? "Menyimpan..." : (compressingPhoto ? "Menyiapkan Foto..." : "Simpan Laporan") }}
       </button>
     </main>
   </div>
@@ -177,24 +189,99 @@ const photoPreview = ref("");
 
 const error = ref("");
 const submitting = ref(false);
+const compressingPhoto = ref(false);
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
   return { headers: { Authorization: `Bearer ${token}` } };
 };
 
-const onPhotoSelected = (event) => {
+const compressImage = async (file) => {
+  return new Promise((resolve) => {
+    // If not a standard image, keep as-is
+    if (!file.type.startsWith("image/") && !file.name.match(/\.(jpe?g|png|webp|heic|heif)$/i)) {
+      return resolve(file);
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => resolve(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => resolve(file);
+      img.onload = () => {
+        try {
+          const maxDim = 1600;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                return resolve(file);
+              }
+              const newFileName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+              const compressedFile = new File([blob], newFileName, {
+                type: "image/jpeg",
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            },
+            "image/jpeg",
+            0.82
+          );
+        } catch (err) {
+          resolve(file);
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+const onPhotoSelected = async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
 
-  if (file.size > 5 * 1024 * 1024) {
-    error.value = "Ukuran foto maksimal 5MB.";
+  error.value = "";
+
+  if (file.size > 25 * 1024 * 1024) {
+    error.value = "Ukuran file foto terlalu besar (maksimal 25MB).";
     event.target.value = "";
     return;
   }
 
-  photoFile.value = file;
-  photoPreview.value = URL.createObjectURL(file);
+  compressingPhoto.value = true;
+  try {
+    const compressed = await compressImage(file);
+    photoFile.value = compressed;
+    if (photoPreview.value && photoPreview.value.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview.value);
+    }
+    photoPreview.value = URL.createObjectURL(compressed);
+  } catch (err) {
+    console.error("Gagal kompresi foto:", err);
+    photoFile.value = file;
+    photoPreview.value = URL.createObjectURL(file);
+  } finally {
+    compressingPhoto.value = false;
+  }
 };
 
 const submitReport = async () => {
@@ -521,6 +608,33 @@ const goBack = () => {
   font-size: 11px;
   font-weight: 600;
   color: #e87500;
+}
+
+.upload-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #1f2454;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 12px 0;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #e2e4ea;
+  border-top-color: #e87500;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .btn-save {
