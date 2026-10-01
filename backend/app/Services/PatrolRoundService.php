@@ -161,6 +161,44 @@ class PatrolRoundService
     }
 
     /**
+     * Tentukan tanggal mulai shift yang menaungi sesi patroli saat ini.
+     */
+    public function resolveSessionAnchor(ScheduleDetail $detail, Carbon $atTime): Carbon
+    {
+        $schedule = $detail->schedule;
+
+        foreach ([$atTime->copy()->startOfDay(), $atTime->copy()->subDay()->startOfDay()] as $anchor) {
+            if ($schedule?->start_date && $anchor->lt(Carbon::parse($schedule->start_date)->startOfDay())) {
+                continue;
+            }
+
+            if ($schedule?->end_date && $anchor->gt(Carbon::parse($schedule->end_date)->startOfDay())) {
+                continue;
+            }
+
+            [$start, $end] = $this->shiftWindow($detail->shift_start, $detail->shift_end, $anchor);
+            $sessionStart = match ($detail->shift_label) {
+                'Pagi'  => $start->copy()->setTime(9, 0),
+                'Siang' => $start->copy()->setTime(16, 0),
+                'Malam' => $start->copy()->addDay()->setTime(0, 0),
+                default => $start,
+            };
+            $sessionEnd = match ($detail->shift_label) {
+                'Pagi'  => $start->copy()->setTime(16, 0),
+                'Siang' => $start->copy()->addDay()->setTime(0, 0),
+                'Malam' => $start->copy()->addDay()->setTime(9, 0),
+                default => $end,
+            };
+
+            if ($atTime->between($sessionStart, $sessionEnd, false)) {
+                return $anchor;
+            }
+        }
+
+        return $atTime->copy()->startOfDay();
+    }
+
+    /**
      * Ambil Carbon timestamp untuk jam target putaran tertentu, disesuaikan
      * dengan anchor shift.
      *

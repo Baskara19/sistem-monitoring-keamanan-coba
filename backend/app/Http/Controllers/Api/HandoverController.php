@@ -164,13 +164,14 @@ class HandoverController extends Controller
 
         // Pastikan putaran yang diajukan handover memang ditugaskan ke pemohon
         $roundService = new PatrolRoundService();
-        if (! $roundService->isRoundAssignedTo($myDetail, $validated['patrol_round'], $satpam->id)) {
+        $shiftAnchor = $roundService->resolveSessionAnchor($myDetail, now());
+        if (! $roundService->isRoundAssignedTo($myDetail, $validated['patrol_round'], $satpam->id, $shiftAnchor)) {
             return response()->json([
                 'message' => "Putaran {$validated['patrol_round']} bukan tugas Anda, sehingga tidak dapat diajukan handover.",
             ], 422);
         }
 
-        $todayDate = today()->toDateString();
+        $handoverDate = $shiftAnchor->toDateString();
 
         // Cek apakah titik tersebut sudah selesai discan oleh pemohon pada putaran ini
         $alreadyScanned = PatrolLog::where('schedule_detail_id', $myDetail->id)
@@ -188,7 +189,7 @@ class HandoverController extends Controller
         $existingHandover = PatrolHandover::where('from_satpam_id', $satpam->id)
             ->where('schedule_detail_id', $myDetail->id)
             ->where('patrol_round', $validated['patrol_round'])
-            ->whereDate('handover_date', $todayDate)
+            ->whereDate('handover_date', $handoverDate)
             ->whereIn('status', ['pending', 'accepted'])
             ->first();
 
@@ -210,7 +211,7 @@ class HandoverController extends Controller
             'schedule_detail_id' => $myDetail->id,
             'patrol_point_id'    => $validated['patrol_point_id'],
             'patrol_round'       => $validated['patrol_round'],
-            'handover_date'      => $todayDate,
+            'handover_date'      => $handoverDate,
             'reason'             => $validated['reason'],
             'status'             => 'pending',
         ]);

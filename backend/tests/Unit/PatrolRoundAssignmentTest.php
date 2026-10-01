@@ -9,6 +9,7 @@ use App\Models\Schedule;
 use App\Models\ScheduleDetail;
 use App\Models\User;
 use App\Services\PatrolRoundService;
+use Carbon\Carbon;
 use PHPUnit\Framework\TestCase;
 
 class PatrolRoundAssignmentTest extends TestCase
@@ -167,6 +168,44 @@ class PatrolRoundAssignmentTest extends TestCase
         $this->assertEquals(55, $service->getAssignedSatpamId($detail, 4));
         $this->assertTrue($service->isRoundAssignedTo($detail, 4, 55));
         $this->assertFalse($service->isRoundAssignedTo($detail, 4, 99));
+    }
+
+    public function test_session_anchor_uses_current_day_for_multi_day_schedule(): void
+    {
+        $service = new PatrolRoundService();
+        $schedule = new Schedule();
+        $schedule->start_date = '2026-10-01';
+        $schedule->end_date = '2026-10-05';
+        $schedule->katim_id = 99;
+
+        $detail = new ScheduleDetail();
+        $detail->satpam_id = 55;
+        $detail->shift_start = '06:00:00';
+        $detail->shift_end = '14:00:00';
+        $detail->setRelation('schedule', $schedule);
+
+        $anchor = $service->resolveSessionAnchor($detail, Carbon::parse('2026-10-02 10:00:00'));
+
+        $this->assertSame('2026-10-02', $anchor->toDateString());
+        $this->assertTrue($service->isRoundAssignedTo($detail, 2, 55, $anchor));
+    }
+
+    public function test_session_anchor_uses_previous_day_for_overnight_shift(): void
+    {
+        $service = new PatrolRoundService();
+        $schedule = new Schedule();
+        $schedule->start_date = '2026-10-01';
+        $schedule->end_date = '2026-10-05';
+
+        $detail = new ScheduleDetail();
+        $detail->satpam_id = 55;
+        $detail->shift_start = '22:00:00';
+        $detail->shift_end = '06:00:00';
+        $detail->setRelation('schedule', $schedule);
+
+        $anchor = $service->resolveSessionAnchor($detail, Carbon::parse('2026-10-02 01:00:00'));
+
+        $this->assertSame('2026-10-01', $anchor->toDateString());
     }
 }
 
